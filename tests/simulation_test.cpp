@@ -13,7 +13,18 @@ static void check(const char* name, bool ok, double a, double b) {
     if (!ok) fails++;
 }
 static void settle() { stopDriving(); vexDelay(500); }
+// How far odometry's position is from where the simulated robot really is
+static double odometryError() { return hypot(getX() - sim::x, getY() - sim::y); }
+
 int main() {
+    // Tell the simulator where the tracking wheels from simpleV5LibConfig.h are (if any)
+    sim::fwd_wheel_port = TRACKING_FORWARD_PORT;
+    sim::fwd_wheel_offset = TRACKING_FORWARD_OFFSET;
+    sim::side_wheel_port = TRACKING_SIDEWAYS_PORT;
+    sim::side_wheel_offset = TRACKING_SIDEWAYS_OFFSET;
+    sim::track_wheel_diam = TRACKING_WHEEL_DIAMETER_INCH;
+    printf("tracking wheels: forward port %d, sideways port %d\n", TRACKING_FORWARD_PORT, TRACKING_SIDEWAYS_PORT);
+
     double t0, d0;
     // forward
     t0 = sim::t_ms; d0 = getPosition();
@@ -142,7 +153,7 @@ int main() {
     check("graph cleared for the next movement", Brain.Screen.clears == 2, Brain.Screen.clears, 2);
 
     // ---------- arcs ----------
-    auto reset = []{ settle(); setHeading(0); sim::x = 0; sim::y = 0; };
+    auto reset = []{ settle(); sim::x = 0; sim::y = 0; setPose(0, 0, 0); };
     reset();
     t1 = sim::t_ms;
     PID_arc(90, 24, 0.5, 0.2); settle();
@@ -239,6 +250,74 @@ int main() {
     check("selector stop/start never makes a second task", sim::next_id - tasks_before == 1, sim::next_id - tasks_before, 1);
     runSelectedAuton();
     check("runSelectedAuton runs the routine", auton_runs == 1, auton_runs, 1);
+
+    // ---------- odometry ----------
+    reset();
+    PID_forward(48, 0.3, 0.2); PID_turn(90, 0.5, 0.2); PID_arc(180, 24, 0.5, 0.2);
+    PID_swing(90, LEFT_SIDE, 0.5, 0.2); PID_forward(-24, 0.3, 0.2); settle();
+    printf("   odometry (%.2f, %.2f), real (%.2f, %.2f)\n", getX(), getY(), sim::x, sim::y);
+    check("odometry follows drives, turns, an arc and a swing", odometryError() < 0.5, odometryError(), 0.5);
+
+    reset(); sim::gain[1] = 0.6;
+    move(60, 60); vexDelay(1500); settle(); // weak right side: the robot drives a curve
+    sim::gain[1] = 1;
+    check("odometry follows a curving drive", odometryError() < 0.5 && hypot(sim::x, sim::y) > 30, odometryError(), hypot(sim::x, sim::y));
+
+    settle(); sim::x = 10; sim::y = 20; setPose(10, 20, 90);
+    PID_forward(12, 0.3, 0.2); settle();
+    check("setPose(10, 20, 90) then forward 12 -> (22, 20)", fabs(getX() - 22) < 0.5 && fabs(getY() - 20) < 0.5, getX(), getY());
+
+    reset();
+    PID_turn_to_point(24, 24, 0.5, 0.2); settle();
+    check("turn to point (24, 24) -> facing 45", fabs(getInertial() - 45) < 1.5, getInertial(), 45);
+    reset();
+    PID_turn_to_point(0, 24, 0.5, 0.2, TURN_TIMEOUT_MS, 100, true); settle();
+    check("turn to point (0, 24) backwards -> facing 180", fabs(fabs(getInertial()) - 180) < 1.5, getInertial(), 180);
+
+    reset();
+    PID_drive_to_point(24, 24, 0.5, 0.2); settle();
+    check("drive to point (24, 24)", hypot(sim::x - 24, sim::y - 24) < 1, sim::x, sim::y);
+    reset();
+    PID_drive_to_point(0, -24, 0.5, 0.2); settle();
+    check("drive to point behind (0, -24): turns around first", hypot(sim::x, sim::y + 24) < 1, sim::x, sim::y);
+    reset();
+    PID_drive_to_point(0, -24, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true); settle();
+    check("drive to (0, -24) backwards: no turning", hypot(sim::x, sim::y + 24) < 1 && fabs(getInertial()) < 3, sim::y, getInertial());
+    reset(); sim::gain[1] = 0.8;
+    PID_drive_to_point(12, 48, 0.5, 0.2); settle();
+    sim::gain[1] = 1;
+    check("drive to point (12, 48) with a weak right side", hypot(sim::x - 12, sim::y - 48) < 1, sim::x, sim::y);
+
+    reset();
+    PID_drive_to_point(0, 24, 0.5, 0.2); PID_drive_to_point(24, 24, 0.5, 0.2);
+    PID_drive_to_point(24, 0, 0.5, 0.2); PID_drive_to_point(0, 0, 0.5, 0.2); settle();
+    check("drive a 24 inch square back to the start", hypot(sim::x, sim::y) < 1.5, sim::x, sim::y);
+
+    reset();
+    PID_drive_to_point_async(0, 48, 0.5, 0.2);
+    waitUntilTraveled(24);
+    check("waitUntilTraveled(24) during drive to point", sim::y >= 24 && sim::y < 28 && isMoving(), sim::y, isMoving());
+    waitUntilDone();
+    reset();
+    PID_drive_to_point_async(48, 0, 0.5, 0.2); // turns 90 degrees first
+    waitUntilTraveled(12);
+    check("  counts inches, not the degrees of the first turn", hypot(sim::x, sim::y) >= 12, hypot(sim::x, sim::y), 12);
+    waitUntilDone();
+
+    if (TRACKING_SIDEWAYS_PORT >= 0) {
+        reset();
+        PID_forward_async(48, 0.3, 0.2);
+        waitUntilTraveled(20);
+        sim::bump(5); // another robot pushes ours 5 inches to the right
+        waitUntilDone(); settle();
+        check("sideways tracking wheel sees the robot get pushed", odometryError() < 0.5 && fabs(sim::x - 5) < 0.5, odometryError(), sim::x);
+        reset();
+        PID_drive_to_point_async(0, 48, 0.5, 0.2);
+        waitUntilTraveled(20);
+        sim::bump(6);
+        waitUntilDone(); settle();
+        check("  drive to point still gets there after the push", hypot(sim::x, sim::y - 48) < 1.5, sim::x, sim::y);
+    }
 
     printf("%d failures\n", fails);
     fflush(stdout);

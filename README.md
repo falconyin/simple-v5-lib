@@ -90,7 +90,7 @@ cancelMovement();                       // at the start of usercontrol(), in cas
 
 Every pull request is checked automatically (`.github/workflows/build.yml`):
 * **Simulator tests:** `tests/run_tests.sh` builds the library against a small drivetrain simulator (`tests/sim/vex.h`) and checks that every movement ends where it should. You can run it on your own computer with any C++17 compiler.
-* **VEX SDK build:** `ci/build_with_vex_sdk.sh` downloads the official VEXcode V5 SDK and compiles the library and all examples for the V5 brain.
+* **VEX SDK build:** `ci/build_with_vex_sdk.sh` downloads the official VEXcode V5 SDK, compiles the library for the V5 brain, and links every example into a full program, the same `.bin` file VEXcode downloads to the brain.
 
 ## Feedback & Support
 

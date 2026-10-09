@@ -86,6 +86,12 @@ cancelMovement();                       // at the start of usercontrol(), in cas
 * Speeds and powers are percentages, from -100 to 100.
 * Arcs need `TRACK_WIDTH_INCH` in simpleV5LibConfig.h: the distance between the middle of your left and right wheels.
 
+## Testing
+
+Every pull request is checked automatically (`.github/workflows/build.yml`):
+* **Simulator tests:** `tests/run_tests.sh` builds the library against a small drivetrain simulator (`tests/sim/vex.h`) and checks that every movement ends where it should. You can run it on your own computer with any C++17 compiler.
+* **VEX SDK build:** `ci/build_with_vex_sdk.sh` downloads the official VEXcode V5 SDK and compiles the library and all examples for the V5 brain.
+
 ## Feedback & Support
 
 Notice a bug or have a feature request? Please open an issue on the [GitHub Issues tab](https://github.com/ianyin-vex/simple-v5-lib/issues).

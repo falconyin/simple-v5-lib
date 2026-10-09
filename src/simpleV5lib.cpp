@@ -62,11 +62,11 @@ double PIDController::compute(double error, double rate) {
     }
     past_error = error;
 
-    double porportional_correction = error * kp;
-    double integral_correction = error_sum * ki;
+    last_p = error * kp;
+    last_i = error_sum * ki;
     // D: brake. Moving towards a bigger position makes the error smaller, so push against the speed
-    double derivative_correction = -rate * kd;
-    return porportional_correction + integral_correction + derivative_correction;
+    last_d = -rate * kd;
+    return last_p + last_i + last_d;
 }
 
 // ============================================================================
@@ -145,7 +145,30 @@ void stopDriving(brakeType mode) {
 
 // ============================================================================
 // Autonomous movements
+//
+// Every movement runs in one background task (motionLoop). The normal functions
+// (PID_forward, ...) start the movement and then wait for it; the _async ones
+// start it and return right away, so your code can do other things meanwhile.
 // ============================================================================
+
+enum motionType { MOTION_FORWARD, MOTION_TURN, MOTION_SWING_LEFT, MOTION_SWING_RIGHT };
+
+struct MotionRequest {
+    motionType type;
+    double target;
+    double error_tolerance;
+    double speed_tolerance;
+    double timeout_ms;
+    double max_speed;
+};
+
+// Shared between your code and the background task ("volatile" = may change at any time)
+static volatile bool motion_running = false;   // a movement is started and not finished yet
+static volatile bool motion_requested = false; // a new movement is waiting for the task to pick it up
+static volatile bool cancel_requested = false; // cancelMovement() asked the movement to stop
+static volatile double motion_progress = 0;    // how far the current movement has gone (inches or degrees)
+static MotionRequest next_motion;
+static task* motion_task = nullptr;
 
 // Keeps track of whether a movement is finished: inside the tolerances for at least settle_ms.
 // Call update() once per loop. It returns true when the movement is done.
@@ -171,32 +194,36 @@ struct SettleCheck {
 enum turnStyle { POINT_TURN, LEFT_SWING, RIGHT_SWING };
 
 // One loop shared by all turns. Only the way the power reaches the wheels is different.
-static void turnToHeading(double target, double error_tolerance, double speed_tolerance,
-                          double timeout_ms, double max_speed, PIDController pid, turnStyle style) {
+static void turnToHeading(const MotionRequest &request, PIDController pid, turnStyle style, const char* name) {
     double start_time = Brain.timer(timeUnits::msec);
     long delay = 10;
     SettleCheck settle(TURN_SETTLE_MS);
-    pid.reset(target - getInertial());
+    double start_heading = getInertial();
+    double target = request.target;
+    pid.reset(target - start_heading);
+    telemetryStart(name, target, target - start_heading, request.timeout_ms);
 
-    while (true) {
+    while (!cancel_requested) {
         double time = Brain.timer(timeUnits::msec) - start_time;
-        if (time > timeout_ms) {
+        if (time > request.timeout_ms) {
             break; // took too long, give up so autonomous can continue
         }
 
-        double current_error = target - getInertial();
+        double current_heading = getInertial();
+        double current_error = target - current_heading;
         double gyro_rate = getGyroRate();
-        bool inside = fabs(current_error) < error_tolerance && fabs(gyro_rate) < speed_tolerance;
+        motion_progress = fabs(current_heading - start_heading);
+        bool inside = fabs(current_error) < request.error_tolerance && fabs(gyro_rate) < request.speed_tolerance;
         if (settle.update(inside, time)) {
             break;
         }
 
-        double total_correction = cap(pid.compute(current_error, gyro_rate), max_speed);
+        double total_correction = cap(pid.compute(current_error, gyro_rate), request.max_speed);
 
         // Almost stopped but not there yet: give it a minimum push to beat friction
-        double min_speed = fmin(TURN_MIN_SPEED, max_speed);
-        if (fabs(current_error) > error_tolerance && fabs(total_correction) < min_speed
-            && fabs(gyro_rate) < speed_tolerance) {
+        double min_speed = fmin(TURN_MIN_SPEED, request.max_speed);
+        if (fabs(current_error) > request.error_tolerance && fabs(total_correction) < min_speed
+            && fabs(gyro_rate) < request.speed_tolerance) {
             total_correction = getSign(current_error) * min_speed;
         }
 
@@ -210,62 +237,39 @@ static void turnToHeading(double target, double error_tolerance, double speed_to
             spinSide(rightDrive, total_correction * -1); // right side backward = clockwise
             leftDrive.stop(brakeType::hold);
         }
+        telemetryUpdate(time, current_error, gyro_rate, total_correction, pid);
         vexDelay(delay);
     }
     stopDriving();
 }
 
-void PID_turn(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
-    PIDController pid(TURN_KP, TURN_KI, TURN_KD, TURN_INTEGRAL_RANGE);
-    turnToHeading(target, error_tolerance, speed_tolerance, timeout_ms, max_speed, pid, POINT_TURN);
-}
-
-void PID_turn_relative(double degrees, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
-    PID_turn(getInertial() + degrees, error_tolerance, speed_tolerance, timeout_ms, max_speed);
-}
-
-void PID_turn_shortest(double heading, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
-    double current = getInertial();
-    // How far to turn, squeezed into -180 to 180 so we always go the short way
-    double difference = fmod(heading - current, 360);
-    if (difference > 180) {
-        difference -= 360;
-    } else if (difference < -180) {
-        difference += 360;
-    }
-    PID_turn(current + difference, error_tolerance, speed_tolerance, timeout_ms, max_speed);
-}
-
-void PID_swing(double target, driveSide moving_side, double error_tolerance, double speed_tolerance,
-               double timeout_ms, double max_speed) {
-    PIDController pid(SWING_KP, SWING_KI, SWING_KD, SWING_INTEGRAL_RANGE);
-    turnStyle style = (moving_side == LEFT_SIDE) ? LEFT_SWING : RIGHT_SWING;
-    turnToHeading(target, error_tolerance, speed_tolerance, timeout_ms, max_speed, pid, style);
-}
-
-void PID_forward(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+static void driveForward(const MotionRequest &request) {
     double start_time = Brain.timer(timeUnits::msec);
     long delay = 10;
     PIDController pid(FORWARD_KP, FORWARD_KI, FORWARD_KD, FORWARD_INTEGRAL_RANGE);
     SettleCheck settle(FORWARD_SETTLE_MS);
+    double target = request.target;
     double start_position = getPosition();
     double start_heading = getInertial(); // the heading we try to keep while driving
     pid.reset(target);
+    telemetryStart("PID_forward", target, target, request.timeout_ms);
 
-    while (true) {
+    while (!cancel_requested) {
         double time = Brain.timer(timeUnits::msec) - start_time;
-        if (time > timeout_ms) {
+        if (time > request.timeout_ms) {
             break; // took too long, give up so autonomous can continue
         }
 
-        double current_error = target - (getPosition() - start_position);
+        double driven = getPosition() - start_position;
+        double current_error = target - driven;
         double motor_rate = getMotorRate();
-        bool inside = fabs(current_error) < error_tolerance && fabs(motor_rate) < speed_tolerance;
+        motion_progress = fabs(driven);
+        bool inside = fabs(current_error) < request.error_tolerance && fabs(motor_rate) < request.speed_tolerance;
         if (settle.update(inside, time)) {
             break;
         }
 
-        double total_correction = cap(pid.compute(current_error, motor_rate), max_speed);
+        double total_correction = cap(pid.compute(current_error, motor_rate), request.max_speed);
 
         // Speed up gently during the first 0.3 s (forwards and backwards) so the wheels don't slip
         // (only limits how hard it pushes, the direction still comes from the PID)
@@ -279,7 +283,150 @@ void PID_forward(double target, double error_tolerance, double speed_tolerance, 
         double heading_correction = (start_heading - getInertial()) * FORWARD_HEADING_KP;
 
         move(total_correction + heading_correction, total_correction - heading_correction);
+        telemetryUpdate(time, current_error, motor_rate, total_correction, pid);
         vexDelay(delay);
     }
     stopDriving();
+}
+
+static void runMotion(const MotionRequest &request) {
+    if (request.type == MOTION_FORWARD) {
+        driveForward(request);
+    } else if (request.type == MOTION_TURN) {
+        PIDController pid(TURN_KP, TURN_KI, TURN_KD, TURN_INTEGRAL_RANGE);
+        turnToHeading(request, pid, POINT_TURN, "PID_turn");
+    } else {
+        PIDController pid(SWING_KP, SWING_KI, SWING_KD, SWING_INTEGRAL_RANGE);
+        turnStyle style = (request.type == MOTION_SWING_LEFT) ? LEFT_SWING : RIGHT_SWING;
+        turnToHeading(request, pid, style, "PID_swing");
+    }
+}
+
+// The background task: waits for a movement, runs it, repeats
+static int motionLoop() {
+    while (true) {
+        if (motion_requested) {
+            motion_requested = false;
+            runMotion(next_motion);
+            motion_running = false;
+        }
+        vexDelay(5);
+    }
+    return 0;
+}
+
+// Hand a movement to the background task. Waits for the previous movement to finish first.
+static void startMotion(motionType type, double target, double error_tolerance, double speed_tolerance,
+                        double timeout_ms, double max_speed) {
+    waitUntilDone();
+    if (motion_task == nullptr) {
+        // Made with "new" so the task object is never destroyed and the task keeps running
+        motion_task = new task(motionLoop);
+    }
+    next_motion = {type, target, error_tolerance, speed_tolerance, timeout_ms, max_speed};
+    cancel_requested = false;
+    motion_progress = 0;
+    motion_running = true;
+    motion_requested = true;
+}
+
+// Turn targets for relative and shortest-way turns, worked out from where the robot faces now
+static double relativeTarget(double degrees) {
+    return getInertial() + degrees;
+}
+
+static double shortestTarget(double heading) {
+    double current = getInertial();
+    // How far to turn, squeezed into -180 to 180 so we always go the short way
+    double difference = fmod(heading - current, 360);
+    if (difference > 180) {
+        difference -= 360;
+    } else if (difference < -180) {
+        difference += 360;
+    }
+    return current + difference;
+}
+
+static motionType swingType(driveSide moving_side) {
+    return (moving_side == LEFT_SIDE) ? MOTION_SWING_LEFT : MOTION_SWING_RIGHT;
+}
+
+// ---------- Start a movement and return right away ----------
+
+void PID_forward_async(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    startMotion(MOTION_FORWARD, target, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+}
+
+void PID_turn_async(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    startMotion(MOTION_TURN, target, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+}
+
+void PID_turn_relative_async(double degrees, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    waitUntilDone(); // measure "from where the robot is facing" after the previous movement ends
+    PID_turn_async(relativeTarget(degrees), error_tolerance, speed_tolerance, timeout_ms, max_speed);
+}
+
+void PID_turn_shortest_async(double heading, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    waitUntilDone();
+    PID_turn_async(shortestTarget(heading), error_tolerance, speed_tolerance, timeout_ms, max_speed);
+}
+
+void PID_swing_async(double target, driveSide moving_side, double error_tolerance, double speed_tolerance,
+                     double timeout_ms, double max_speed) {
+    startMotion(swingType(moving_side), target, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+}
+
+// ---------- Start a movement and wait until it is finished ----------
+
+void PID_forward(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    PID_forward_async(target, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+    waitUntilDone();
+}
+
+void PID_turn(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    PID_turn_async(target, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+    waitUntilDone();
+}
+
+void PID_turn_relative(double degrees, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    PID_turn_relative_async(degrees, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+    waitUntilDone();
+}
+
+void PID_turn_shortest(double heading, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    PID_turn_shortest_async(heading, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+    waitUntilDone();
+}
+
+void PID_swing(double target, driveSide moving_side, double error_tolerance, double speed_tolerance,
+               double timeout_ms, double max_speed) {
+    PID_swing_async(target, moving_side, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+    waitUntilDone();
+}
+
+// ---------- Waiting and stopping ----------
+
+void waitUntilDone() {
+    while (motion_running) {
+        vexDelay(5);
+    }
+}
+
+void waitUntilTraveled(double amount) {
+    while (motion_running && motion_progress < amount) {
+        vexDelay(5);
+    }
+}
+
+bool isMoving() {
+    return motion_running;
+}
+
+void cancelMovement() {
+    if (!motion_running) {
+        return;
+    }
+    cancel_requested = true;
+    waitUntilDone();
+    cancel_requested = false;
 }

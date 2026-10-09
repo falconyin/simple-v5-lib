@@ -32,6 +32,12 @@ void rightSideAuton() {
 
 void skillsAuton() {
     setHeading(0);
+    // Do something else while driving: start the drive, and keep going in this code
+    PID_forward_async(48, 0.3, 0.2);
+    waitUntilTraveled(24);            // wait until the robot has driven 24 inches
+    // intake.spin(forward);          // ...then start your intake (or anything else)
+    waitUntilDone();                  // wait until the drive is finished
+
     PID_turn_relative(180, 0.5, 0.2); // turn around, whichever way the robot is facing
     PID_turn_shortest(0, 0.5, 0.2);   // face 0 degrees again, taking the shorter way
 }
@@ -53,6 +59,7 @@ void autonomous(void) {
 
 void usercontrol(void) {
     stopAutonSelector(); // frees the Left / Right buttons
+    cancelMovement();    // stop any autonomous movement that is still running
     while (true) {
         arcadeDrive();   // or tankDrive();
         wait(20, msec);  // don't hog the CPU

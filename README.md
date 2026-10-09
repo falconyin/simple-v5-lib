@@ -20,6 +20,8 @@ This library uses simple language and easy logic. It helps you get the hang of i
 ## What's Included
 
 * **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest` and `PID_swing`, with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight.
+* **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
+* **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal.
 * **Driver control:** `tankDrive()` and `arcadeDrive()`, with a joystick deadband and curve.
 * **Autonomous selector:** pick your routine on the Brain screen or the controller before the match.
 * **A reusable `PIDController`:** the same one the drivetrain uses. Use it for your own lift or arm too.
@@ -34,7 +36,7 @@ This is an example of a drivetrain and what the motor names (left front, left mi
 ![Drivetrain](images/drivetrainExampleImage.png)
 4. **Calibrate:** Call `calibrateInertial();` once before any movement (for example in `pre_auton`). It takes about 2 seconds, and the robot must stay still.
 5. **Tune:** Go to your simpleV5LibConfig.h file and tune your kp, ki, and kd constants by following this [YouTube Video Tutorial](https://www.youtube.com/watch?v=WN3_vxA_D04).
-6. **Code:** Start writing your autonomous routes! `examples/competitionTemplate` is a full competition program that uses everything; the other examples show a single movement. Every movement stops on its own after a timeout (see `TURN_TIMEOUT_MS` and `FORWARD_TIMEOUT_MS`), so a stuck robot won't freeze your whole autonomous.
+6. **Code:** Start writing your autonomous routes! `examples/competitionTemplate` is a full competition program that uses everything, `examples/tuning` helps you tune with live graphs, and the other examples show a single movement. Every movement stops on its own after a timeout (see `TURN_TIMEOUT_MS` and `FORWARD_TIMEOUT_MS`), so a stuck robot won't freeze your whole autonomous.
 
 ## Quick Reference
 
@@ -48,6 +50,17 @@ PID_turn_shortest(270, 0.5, 0.2);                   // face 270 degrees, whichev
 PID_swing(90, LEFT_SIDE, 0.5, 0.2);                 // swing to 90 degrees: only the left side moves
 setHeading(0);                                      // "the robot is facing 0 degrees right now"
 
+// Do something while driving
+PID_forward_async(48, 0.3, 0.2);   // start driving, and keep going in your code right away
+waitUntilTraveled(24);             // wait until 24 inches are done (degrees for turns)
+intake.spin(forward);              // your own motor
+waitUntilDone();                   // wait until the drive is finished
+cancelMovement();                  // stop the current movement now
+
+// Live data while tuning
+graphOnScreen(true);   // error and power as a graph on the Brain screen
+logToTerminal(true);   // numbers in the terminal, to paste into a spreadsheet
+
 // Driver control (inside the while loop in usercontrol)
 arcadeDrive();   // or tankDrive();
 
@@ -56,6 +69,7 @@ addAuton("Left side", leftSideAuton);   // in pre_auton, once per routine
 startAutonSelector();                   // at the end of pre_auton
 runSelectedAuton();                     // in autonomous()
 stopAutonSelector();                    // at the start of usercontrol()
+cancelMovement();                       // at the start of usercontrol(), in case autonomous was still moving
 ```
 
 ### Units

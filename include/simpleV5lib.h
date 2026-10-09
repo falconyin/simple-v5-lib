@@ -37,6 +37,11 @@ struct PIDController {
     double error_sum = 0;
     double past_error = 0;
 
+    // The three parts of the last compute() result, handy for graphing (see logToTerminal)
+    double last_p = 0;
+    double last_i = 0;
+    double last_d = 0;
+
     PIDController(double kp, double ki, double kd, double integral_range);
 
     // Call before starting a new movement
@@ -82,6 +87,7 @@ void stopDriving(brakeType mode = DRIVE_BRAKE_MODE);
 // ============================================================================
 // Autonomous movements
 // Every movement waits until it is finished, then stops the drivetrain.
+// Each one also has an _async version, see "Doing other things while driving" below.
 //   error_tolerance: how close to the target counts as "there"
 //   speed_tolerance: how slow the robot must be moving to count as stopped
 //   timeout_ms:      (optional) give up after this many milliseconds
@@ -113,6 +119,60 @@ enum driveSide { LEFT_SIDE, RIGHT_SIDE };
 // Tolerances in degrees and degrees/10 ms.
 void PID_swing(double target, driveSide moving_side, double error_tolerance, double speed_tolerance,
                double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
+
+// ============================================================================
+// Doing other things while driving
+// The _async versions start the movement and return right away, so your code can
+// run an intake, raise a lift, ... while the robot drives. Same parameters as above.
+// A new movement always waits for the previous one to finish first.
+//
+//   PID_forward_async(36, 0.3, 0.2);
+//   waitUntilTraveled(12);       // after 12 inches...
+//   intake.spin(forward);        // ...start the intake
+//   waitUntilDone();             // wait for the drive to finish
+// ============================================================================
+
+void PID_forward_async(double target, double error_tolerance, double speed_tolerance,
+                       double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100);
+void PID_turn_async(double target, double error_tolerance, double speed_tolerance,
+                    double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
+void PID_turn_relative_async(double degrees, double error_tolerance, double speed_tolerance,
+                             double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
+void PID_turn_shortest_async(double heading, double error_tolerance, double speed_tolerance,
+                             double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
+void PID_swing_async(double target, driveSide moving_side, double error_tolerance, double speed_tolerance,
+                     double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
+
+// Wait until the current movement is finished
+void waitUntilDone();
+
+// Wait until the current movement has gone this far from where it started
+// (inches for PID_forward, degrees for turns), or has finished
+void waitUntilTraveled(double amount);
+
+// true while a movement is running
+bool isMoving();
+
+// Stop the current movement right away (also called by tankDrive / arcadeDrive)
+void cancelMovement();
+
+// ============================================================================
+// Live data, for tuning
+// Shows what the PID is doing during every movement. Both are off by default.
+// ============================================================================
+
+// Print one line every 20 ms to the terminal (connect with a USB cable):
+//   time_ms,error,speed,output,p,i,d
+// Copy it into a spreadsheet and make a line chart to see the movement.
+void logToTerminal(bool on);
+
+// Draw the error (red) and the power (green) on the Brain screen while the robot moves.
+// The middle line is 0: a red line that crosses it means the robot went past the target.
+void graphOnScreen(bool on);
+
+// Used by the movements to report their data
+void telemetryStart(const char* name, double target, double start_error, double timeout_ms);
+void telemetryUpdate(double time_ms, double error, double speed, double output, const PIDController &pid);
 
 // ============================================================================
 // Driver control: call one of these inside the while loop in usercontrol()

@@ -10,13 +10,22 @@ static double stickToPower(double stick) {
     return sign * pow(fabs(stick) / 100, DRIVE_CURVE) * 100;
 }
 
+// Driver control and an autonomous movement would fight over the motors, so the driver wins
+static void stopAutonomousMovement() {
+    if (isMoving()) {
+        cancelMovement();
+    }
+}
+
 void tankDrive() {
+    stopAutonomousMovement();
     double left = stickToPower(Controller.Axis3.position(percentUnits::pct));  // left stick up/down
     double right = stickToPower(Controller.Axis2.position(percentUnits::pct)); // right stick up/down
     move(left, right);
 }
 
 void arcadeDrive() {
+    stopAutonomousMovement();
     double forward = stickToPower(Controller.Axis3.position(percentUnits::pct));                // left stick up/down
     double turn = stickToPower(Controller.Axis1.position(percentUnits::pct)) * DRIVE_TURN_SCALE; // right stick left/right
     move(forward + turn, forward - turn);

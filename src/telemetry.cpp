@@ -48,7 +48,8 @@ void telemetryStart(const char* name, double target, double start_error, double 
 
         Brain.Screen.clearScreen();
         Brain.Screen.setPenColor(color::white);
-        Brain.Screen.printAt(5, 20, "%s  target %.1f", name, target);
+        // (the "true" picks the printAt that takes extra values; without it the call is ambiguous)
+        Brain.Screen.printAt(5, 20, true, "%s  target %.1f", name, target);
         Brain.Screen.setPenColor(color::red);
         Brain.Screen.printAt(300, 20, "error");
         Brain.Screen.setPenColor(color::green);

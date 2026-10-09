@@ -61,7 +61,7 @@ enum rateUnits { dps };
 struct color { int c; static const color red, green, white; };
 inline const color color::red{1}, color::green{2}, color::white{3};
 struct screen { int lines = 0, clears = 0; void clearScreen(){ clears++; } void setCursor(int,int){} int print(const char*, ...){return 0;}
-  int printAt(int,int,const char*, ...){return 0;} void setPenColor(const color&){} void drawLine(int,int,int x2,int y2){ lines++; if (x2<0||x2>480||y2<0||y2>240) printf("OFFSCREEN %d %d\n", x2, y2); }
+  int printAt(int,int,const char*, ...){return 0;} int printAt(int,int,bool,const char*, ...){return 0;} void setPenColor(const color&){} void drawLine(int,int,int x2,int y2){ lines++; if (x2<0||x2>480||y2<0||y2>240) printf("OFFSCREEN %d %d\n", x2, y2); }
   bool pressing(){return false;} int xPosition(){return 0;} void clearLine(int){} };
 struct brain { double timer(timeUnits u){ return u == timeUnits::msec ? sim::t_ms : sim::t_ms / 1000; } screen Screen; };
 struct axis { int value = 0; int position(percentUnits){ return value; } };

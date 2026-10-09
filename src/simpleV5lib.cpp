@@ -110,7 +110,6 @@ void PID_turn(double target, double error_tolerance, double speed_tolerance, dou
             break; // took too long, give up so autonomous can continue
         }
         current_heading = getInertial();
-        gyro_rate = getGyroRate();
         current_error = target_heading - current_heading;
 
         if (fabs(current_error) < integral_range) {
@@ -134,6 +133,7 @@ void PID_turn(double target, double error_tolerance, double speed_tolerance, dou
         move(total_correction, total_correction * -1);
         past_error = current_error;
         vexDelay(delay);
+        gyro_rate = getGyroRate(); // fresh reading for the exit check
     }
     move(0, 0);
 }
@@ -183,8 +183,10 @@ void PID_forward(double target, double error_tolerance, double speed_tolerance, 
         derivative_correction = -motorRate * kd;
         total_correction = cap(porportional_correction + integral_correction + derivative_correction, 100);
         // Speed up gently during the first 0.3 s (forwards and backwards) so the wheels don't slip
-        if (current_time < 0.3 && fabs(total_correction) > 60) {
-            total_correction = getSign(target) * (30 + (current_time * 233));
+        // (only limits how hard it pushes, the direction still comes from the PID)
+        double ramp_limit = 30 + (current_time * 233);
+        if (current_time < 0.3 && fabs(total_correction) > ramp_limit) {
+            total_correction = getSign(total_correction) * ramp_limit;
         }
 
         // Keep driving straight: if the robot turned clockwise, heading_correction is negative,

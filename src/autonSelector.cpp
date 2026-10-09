@@ -7,6 +7,7 @@ static void (*auton_routines[MAX_AUTONS])();
 static int auton_count = 0;
 static int selected = 0;
 static bool selector_running = false;
+static task* selector_task = nullptr;
 
 void addAuton(const char* name, void (*routine)()) {
     if (auton_count >= MAX_AUTONS) {
@@ -30,10 +31,21 @@ static void showSelection() {
     Controller.Screen.print("%s", auton_names[selected]);
 }
 
-// Runs in the background (as a task) until autonomous or driver control starts
+// Runs in the background (as a task). There is only ever one of these: while the selector is
+// stopped it just waits, and starts reacting to taps and buttons again when it is started.
 static int selectorLoop() {
-    showSelection();
-    while (selector_running) {
+    bool shown = false; // is the current selection on the screens?
+    while (true) {
+        if (!selector_running) {
+            shown = false;
+            vexDelay(50);
+            continue;
+        }
+        if (!shown) {
+            showSelection();
+            shown = true;
+        }
+
         int step = 0; // -1 = previous routine, 1 = next routine
         if (Brain.Screen.pressing()) {
             step = (Brain.Screen.xPosition() < 240) ? -1 : 1; // the screen is 480 pixels wide
@@ -67,9 +79,11 @@ void startAutonSelector() {
         return;
     }
     selector_running = true;
-    // Start selectorLoop in the background. Made with "new" so the task object is never destroyed,
-    // which keeps the task running after this function returns.
-    new task(selectorLoop);
+    if (selector_task == nullptr) {
+        // Start selectorLoop in the background, only the first time. Made with "new" so the task
+        // object is never destroyed, which keeps the task running after this function returns.
+        selector_task = new task(selectorLoop);
+    }
 }
 
 void stopAutonSelector() {

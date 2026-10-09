@@ -138,6 +138,17 @@ void move(double left_speed, double right_speed) {
     spinSide(rightDrive, right_speed);
 }
 
+// Like move(), but neither side goes above limit. Both sides are scaled down together,
+// so the robot still steers the same way.
+static void moveLimited(double left_speed, double right_speed, double limit) {
+    double biggest = fmax(fabs(left_speed), fabs(right_speed));
+    if (biggest > limit) {
+        left_speed = left_speed / biggest * limit;
+        right_speed = right_speed / biggest * limit;
+    }
+    move(left_speed, right_speed);
+}
+
 void stopDriving(brakeType mode) {
     leftDrive.stop(mode);
     rightDrive.stop(mode);
@@ -322,9 +333,9 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
             double outside = total_correction * (radius + TRACK_WIDTH_INCH / 2) / radius;
             double inside = total_correction * (radius - TRACK_WIDTH_INCH / 2) / radius;
             if (bend > 0) {
-                move(outside, inside); // circle bends right: the left side is on the outside
+                moveLimited(outside, inside, request.max_speed); // circle bends right: the left side is on the outside
             } else {
-                move(inside, outside);
+                moveLimited(inside, outside, request.max_speed);
             }
         }
         telemetryUpdate(time, current_error, gyro_rate, total_correction, pid);
@@ -389,7 +400,8 @@ static void driveForward(const MotionRequest &request) {
         // which slows the left side and speeds up the right side to turn back
         double heading_correction = (start_heading - getInertial()) * FORWARD_HEADING_KP;
 
-        move(total_correction + heading_correction, total_correction - heading_correction);
+        // (moveLimited keeps both sides under max_speed, heading correction included)
+        moveLimited(total_correction + heading_correction, total_correction - heading_correction, request.max_speed);
         telemetryUpdate(time, current_error, motor_rate, total_correction, pid);
         vexDelay(delay);
     }

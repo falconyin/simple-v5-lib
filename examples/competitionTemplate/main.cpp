@@ -42,6 +42,15 @@ void skillsAuton() {
     PID_turn_shortest(0, 0.5, 0.2);   // face 0 degrees again, taking the shorter way
 }
 
+void fastAuton() {
+    setHeading(0);
+    // Chained movements don't stop in between: much faster
+    PID_forward_chain(36, 3);         // drive 36 inches, move on 3 inches before the end
+    PID_arc_chain(90, 24, 10);        // curve right along a 24 inch circle until facing 90
+    PID_forward(12, 0.3, 0.2);        // a normal movement at the end, so the robot stops exactly
+    PID_arc(0, -18, 0.5, 0.2);        // back up along an 18 inch circle until facing 0 again
+}
+
 // ---------- Competition parts ----------
 
 void pre_auton(void) {
@@ -50,6 +59,7 @@ void pre_auton(void) {
     addAuton("Left side", leftSideAuton);
     addAuton("Right side", rightSideAuton);
     addAuton("Skills", skillsAuton);
+    addAuton("Fast (chained)", fastAuton);
     startAutonSelector(); // tap the Brain screen or use the Left / Right buttons to choose
 }
 

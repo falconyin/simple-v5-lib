@@ -120,6 +120,13 @@ enum driveSide { LEFT_SIDE, RIGHT_SIDE };
 void PID_swing(double target, driveSide moving_side, double error_tolerance, double speed_tolerance,
                double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
 
+// Drive along a circle until the robot faces target (degrees, like PID_turn).
+// radius: inches from the middle of the circle to the middle of the robot. Positive drives forward
+// along the arc, negative drives backwards. Bigger radius = gentler curve, 0 = turn in place.
+// Tolerances in degrees and degrees/10 ms. Needs TRACK_WIDTH_INCH in simpleV5LibConfig.h.
+void PID_arc(double target, double radius, double error_tolerance, double speed_tolerance,
+             double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100);
+
 // ============================================================================
 // Doing other things while driving
 // The _async versions start the movement and return right away, so your code can
@@ -142,6 +149,8 @@ void PID_turn_shortest_async(double heading, double error_tolerance, double spee
                              double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
 void PID_swing_async(double target, driveSide moving_side, double error_tolerance, double speed_tolerance,
                      double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
+void PID_arc_async(double target, double radius, double error_tolerance, double speed_tolerance,
+                   double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100);
 
 // Wait until the current movement is finished
 void waitUntilDone();
@@ -153,8 +162,29 @@ void waitUntilTraveled(double amount);
 // true while a movement is running
 bool isMoving();
 
-// Stop the current movement right away (also called by tankDrive / arcadeDrive)
+// Stop the current movement right away, or a chained one that is still rolling
+// (also called by tankDrive / arcadeDrive)
 void cancelMovement();
+
+// ============================================================================
+// Chained movements: don't stop between movements
+// A chained movement finishes when it gets within exit_range of its target (inches for
+// PID_forward_chain, degrees for the others) and does NOT stop: the next movement takes
+// over while the robot is still moving. Much faster, a little less exact.
+// End your chain with a normal movement so the robot stops at the right place.
+// (If nothing follows within CHAIN_STOP_AFTER_MS, the drivetrain stops on its own.)
+//
+//   PID_forward_chain(24, 3);          // drive 24 inches, move on 3 inches before the end
+//   PID_turn_chain(90, 10);            // turn to 90, move on 10 degrees before
+//   PID_forward(24, 0.3, 0.2);         // normal movement: stops at the end
+// ============================================================================
+
+void PID_forward_chain(double target, double exit_range, double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100);
+void PID_turn_chain(double target, double exit_range, double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
+void PID_swing_chain(double target, driveSide moving_side, double exit_range,
+                     double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
+void PID_arc_chain(double target, double radius, double exit_range,
+                   double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100);
 
 // ============================================================================
 // Live data, for tuning

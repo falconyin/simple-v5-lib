@@ -59,6 +59,13 @@ const double FORWARD_INTEGRAL_RANGE = 1.5;
 // Power added per degree of heading drift. Set to 0 to turn it off.
 const double FORWARD_HEADING_KP = 1.0;
 
+// ---------- Arcs (PID_arc: drive along a circle) ----------
+// Arcs work in inches along the circle, like PID_forward, so start from the forward values
+const double ARC_KP = FORWARD_KP;
+const double ARC_KI = FORWARD_KI;
+const double ARC_KD = FORWARD_KD;
+const double ARC_INTEGRAL_RANGE = FORWARD_INTEGRAL_RANGE;
+
 // ---------- When is a movement finished? ----------
 // Default time limits in milliseconds. If a movement takes longer than this
 // (for example the robot is stuck on a wall), it gives up so autonomous can continue.
@@ -70,6 +77,10 @@ const double FORWARD_TIMEOUT_MS = 5000;
 // Set to 0 to finish the moment it is inside the tolerances.
 const double TURN_SETTLE_MS = 50;
 const double FORWARD_SETTLE_MS = 50;
+
+// Chained movements (PID_forward_chain, ...) end without stopping. If no movement follows
+// within this many milliseconds, the drivetrain stops anyway, so the robot can't drive off.
+const double CHAIN_STOP_AFTER_MS = 100;
 
 // What the motors do when a movement ends:
 // brakeType::coast (roll freely), brakeType::brake (stop quickly), brakeType::hold (stop and push back)
@@ -88,4 +99,7 @@ const double DRIVE_TURN_SCALE = 1.0;
 const double WHEEL_DIAMETER_INCH = 3.25;
 const double WHEEL_CIRCUMFERENCE_INCH = WHEEL_DIAMETER_INCH * M_PI;
 const double MOTOR_TO_WHEEL_GEAR_RATIO = 2.0 / 3.0;
+// Distance between the middle of the left wheels and the middle of the right wheels, in inches.
+// Arcs use it to work out how much faster the outside wheels must go. Measure your robot!
+const double TRACK_WIDTH_INCH = 12.0;
 #endif

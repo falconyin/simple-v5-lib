@@ -12,9 +12,7 @@ static double stickToPower(double stick) {
 
 // Driver control and an autonomous movement would fight over the motors, so the driver wins
 static void stopAutonomousMovement() {
-    if (isMoving()) {
-        cancelMovement();
-    }
+    cancelMovement(); // does nothing if no movement is running
 }
 
 void tankDrive() {

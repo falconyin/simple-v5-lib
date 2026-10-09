@@ -19,7 +19,8 @@ This library uses simple language and easy logic. It helps you get the hang of i
 
 ## What's Included
 
-* **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest` and `PID_swing`, with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight.
+* **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest`, `PID_swing` and `PID_arc` (drive along a curve), with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight.
+* **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
 * **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal.
 * **Driver control:** `tankDrive()` and `arcadeDrive()`, with a joystick deadband and curve.
@@ -48,7 +49,14 @@ PID_turn(90, 0.5, 0.2);                             // turn to face exactly 90 d
 PID_turn_relative(-45, 0.5, 0.2);                   // turn 45 degrees counter-clockwise from where you are
 PID_turn_shortest(270, 0.5, 0.2);                   // face 270 degrees, whichever way is shorter
 PID_swing(90, LEFT_SIDE, 0.5, 0.2);                 // swing to 90 degrees: only the left side moves
+PID_arc(90, 24, 0.5, 0.2);                          // curve along a 24 inch circle until facing 90
+PID_arc(0, -24, 0.5, 0.2);                          // same, but backing up (negative radius)
 setHeading(0);                                      // "the robot is facing 0 degrees right now"
+
+// Chained: don't stop between movements (much faster). End with a normal movement.
+PID_forward_chain(24, 3);   // move on to the next movement 3 inches before the target
+PID_turn_chain(90, 10);     // move on 10 degrees before the target
+PID_forward(24, 0.3, 0.2);  // stops exactly at the end
 
 // Do something while driving
 PID_forward_async(48, 0.3, 0.2);   // start driving, and keep going in your code right away
@@ -76,6 +84,7 @@ cancelMovement();                       // at the start of usercontrol(), in cas
 * Forward targets are in inches. It is worth noting that a single tile is around 23.622 inches wide.
 * Turn targets are in degrees, clockwise is positive. You should know this, but 360 degrees make a full circle.
 * Speeds and powers are percentages, from -100 to 100.
+* Arcs need `TRACK_WIDTH_INCH` in simpleV5LibConfig.h: the distance between the middle of your left and right wheels.
 
 ## Feedback & Support
 

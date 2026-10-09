@@ -1,3 +1,5 @@
+#ifndef SIMPLEV5LIBCONFIG_H
+#define SIMPLEV5LIBCONFIG_H
 #include "vex.h"
 
 using namespace vex;
@@ -33,14 +35,24 @@ const double TURN_KD = 36.7;
 // Turn integral range
 const double TURN_INTEGRAL_RANGE = 10;
 
-// Tune PID turn constnats
+// Tune PID forward constants
 const double FORWARD_KP = 12;
 const double FORWARD_KI = 0.05;
-const double FORWARD_KD = 0.78;
+const double FORWARD_KD = 0.78; // re-tune this: the D term now brakes instead of pushing (sign fix)
 
-// Turn integral range
+// Forward integral range
 const double FORWARD_INTEGRAL_RANGE = 1.5;
 
-#define WHEEL_DIAMETER_INCH 3.25
-#define WHEEL_CIRCUMFERENCE_INCH WHEEL_DIAMETER_INCH * M_PI
-#define MOTOR_TO_WHEEL_GEAR_RATIO 2.0/3.0
+// Keeps the robot driving straight during PID_forward.
+// Power added per degree of heading drift. Set to 0 to turn it off.
+const double FORWARD_HEADING_KP = 1.0;
+
+// Default time limits in milliseconds. If a movement takes longer than this
+// (for example the robot is stuck on a wall), it gives up so autonomous can continue.
+const double TURN_TIMEOUT_MS = 3000;
+const double FORWARD_TIMEOUT_MS = 5000;
+
+const double WHEEL_DIAMETER_INCH = 3.25;
+const double WHEEL_CIRCUMFERENCE_INCH = WHEEL_DIAMETER_INCH * M_PI;
+const double MOTOR_TO_WHEEL_GEAR_RATIO = 2.0 / 3.0;
+#endif

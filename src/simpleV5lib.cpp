@@ -1,7 +1,8 @@
 #include "simpleV5lib.h"
-#include <cstdio>
-#include <cstdlib>
-#include <iostream>
+
+// ============================================================================
+// Devices
+// ============================================================================
 
 brain Brain;
 controller Controller;
@@ -12,7 +13,65 @@ motor rightFront(PORT_RIGHTFRONT, RF_GEAR_RATIO, RF_DIRECTION);
 motor rightMiddle(PORT_RIGHTMIDDLE, RM_GEAR_RATIO, RM_DIRECTION);
 motor rightBack(PORT_RIGHTBACK, RB_GEAR_RATIO, RB_DIRECTION);
 
+motor_group leftDrive(leftFront, leftMiddle, leftBack);
+motor_group rightDrive(rightFront, rightMiddle, rightBack);
+
 inertial Inertial(PORT_INERTIAL);
+
+// ============================================================================
+// Small helpers
+// ============================================================================
+
+static double cap(double input, double max_value) {
+    if (fabs(input) > max_value) {
+        return (input >= 0) ? max_value : max_value * -1.0;
+    }
+    return input;
+}
+
+static double getSign(double input) {
+    if (input >= 0) {
+        return 1;
+    } else {
+        return -1;
+    }
+}
+
+// ============================================================================
+// PID controller
+// ============================================================================
+
+PIDController::PIDController(double kp, double ki, double kd, double integral_range)
+    : kp(kp), ki(ki), kd(kd), integral_range(integral_range) {}
+
+void PIDController::reset(double starting_error) {
+    error_sum = 0;
+    past_error = starting_error;
+}
+
+double PIDController::compute(double error, double rate) {
+    // I: add up the error, but only near the target, so it can't build up a huge push on the way there
+    if (fabs(error) < integral_range) {
+        error_sum = error_sum + error;
+    } else {
+        error_sum = 0;
+    }
+    // We just went past the target: throw away the old push, or it would drive us further past
+    if ((error * past_error) < 0) {
+        error_sum = 0;
+    }
+    past_error = error;
+
+    double porportional_correction = error * kp;
+    double integral_correction = error_sum * ki;
+    // D: brake. Moving towards a bigger position makes the error smaller, so push against the speed
+    double derivative_correction = -rate * kd;
+    return porportional_correction + integral_correction + derivative_correction;
+}
+
+// ============================================================================
+// Setup
+// ============================================================================
 
 void calibrateInertial() {
     Inertial.calibrate();
@@ -20,6 +79,20 @@ void calibrateInertial() {
         vexDelay(10);
     }
 }
+
+void setHeading(double degrees) {
+    Inertial.setRotation(degrees, rotationUnits::deg);
+    // heading() only goes from 0 to 360, so wrap the value into that range
+    double heading = fmod(degrees, 360);
+    if (heading < 0) {
+        heading += 360;
+    }
+    Inertial.setHeading(heading, rotationUnits::deg);
+}
+
+// ============================================================================
+// Sensors
+// ============================================================================
 
 double getInertial() {
     return Inertial.rotation(rotationUnits::deg);
@@ -44,16 +117,15 @@ double getMotorRate() {
     return motor_dps / 360 * WHEEL_CIRCUMFERENCE_INCH * MOTOR_TO_WHEEL_GEAR_RATIO;
 }
 
-void stopDriving() {
-    leftFront.stop(brakeType::brake);
-    leftMiddle.stop(brakeType::brake);
-    leftBack.stop(brakeType::brake);
-    rightFront.stop(brakeType::brake);
-    rightMiddle.stop(brakeType::brake);
-    rightBack.stop(brakeType::brake);
+// ============================================================================
+// Basic driving
+// ============================================================================
+
+// Power one side, in percent (-100 to 100). 100% = 12 V = 12000 mV.
+static void spinSide(motor_group &side, double speed) {
+    side.spin(directionType::fwd, speed * 120, voltageUnits::mV);
 }
 
-// left_speed and right_speed are percentages from -100 to 100.
 // If either side asks for more than 100, both sides are scaled down together
 // so the ratio between them (which steers the robot) is kept.
 void move(double left_speed, double right_speed) {
@@ -62,141 +134,152 @@ void move(double left_speed, double right_speed) {
         left_speed = left_speed / biggest * 100;
         right_speed = right_speed / biggest * 100;
     }
-    left_speed *= 120;
-    right_speed *= 120;
-    leftFront.spin(directionType::fwd, left_speed, voltageUnits::mV);
-    leftMiddle.spin(directionType::fwd, left_speed, voltageUnits::mV);
-    leftBack.spin(directionType::fwd, left_speed, voltageUnits::mV);
-    rightFront.spin(directionType::fwd, right_speed, voltageUnits::mV);
-    rightMiddle.spin(directionType::fwd, right_speed, voltageUnits::mV);
-    rightBack.spin(directionType::fwd, right_speed, voltageUnits::mV);
+    spinSide(leftDrive, left_speed);
+    spinSide(rightDrive, right_speed);
 }
 
-static double cap(double input, uint32_t max_value) {
-    if (fabs(input) > max_value) {
-        return (input >= 0) ? max_value : max_value * -1.0;
+void stopDriving(brakeType mode) {
+    leftDrive.stop(mode);
+    rightDrive.stop(mode);
+}
+
+// ============================================================================
+// Autonomous movements
+// ============================================================================
+
+// Keeps track of whether a movement is finished: inside the tolerances for at least settle_ms.
+// Call update() once per loop. It returns true when the movement is done.
+struct SettleCheck {
+    double settle_ms;
+    double inside_since = -1; // time we got inside the tolerances, -1 = not inside right now
+
+    SettleCheck(double settle_ms) : settle_ms(settle_ms) {}
+
+    bool update(bool inside_tolerances, double now_ms) {
+        if (!inside_tolerances) {
+            inside_since = -1;
+            return false;
+        }
+        if (inside_since < 0) {
+            inside_since = now_ms;
+        }
+        return now_ms - inside_since >= settle_ms;
     }
-    return input;
-}
+};
 
-static double getSign(double input) {
-    if (input >= 0) {
-        return 1;
-    } else {
-        return -1;
-    }
-}
+// How the drivetrain turns: both sides (in place), or only one side (swing)
+enum turnStyle { POINT_TURN, LEFT_SWING, RIGHT_SWING };
 
-void PID_turn(double target, double error_tolerance, double speed_tolerance, double timeout_ms) {
+// One loop shared by all turns. Only the way the power reaches the wheels is different.
+static void turnToHeading(double target, double error_tolerance, double speed_tolerance,
+                          double timeout_ms, double max_speed, PIDController pid, turnStyle style) {
     double start_time = Brain.timer(timeUnits::msec);
     long delay = 10;
-    double kp = TURN_KP;
-    double ki = TURN_KI;
-    double kd = TURN_KD;
-    double porportional_correction = 0;
-    double integral_correction = 0;
-    double derivative_correction = 0;
-    double current_heading = getInertial();
-    double target_heading = target;
-    double current_error = target_heading - current_heading;
-    double past_error = current_error;
-    double error_sum = 0;
-    double total_correction = 0;
-    double integral_range = TURN_INTEGRAL_RANGE;
-    double gyro_rate = getGyroRate();
+    SettleCheck settle(TURN_SETTLE_MS);
+    pid.reset(target - getInertial());
 
-    while (fabs(current_error) > error_tolerance || fabs(gyro_rate) > speed_tolerance) {
-        if (Brain.timer(timeUnits::msec) - start_time > timeout_ms) {
+    while (true) {
+        double time = Brain.timer(timeUnits::msec) - start_time;
+        if (time > timeout_ms) {
             break; // took too long, give up so autonomous can continue
         }
-        current_heading = getInertial();
-        current_error = target_heading - current_heading;
 
-        if (fabs(current_error) < integral_range) {
-            error_sum = error_sum + current_error;
+        double current_error = target - getInertial();
+        double gyro_rate = getGyroRate();
+        bool inside = fabs(current_error) < error_tolerance && fabs(gyro_rate) < speed_tolerance;
+        if (settle.update(inside, time)) {
+            break;
+        }
+
+        double total_correction = cap(pid.compute(current_error, gyro_rate), max_speed);
+
+        // Almost stopped but not there yet: give it a minimum push to beat friction
+        double min_speed = fmin(TURN_MIN_SPEED, max_speed);
+        if (fabs(current_error) > error_tolerance && fabs(total_correction) < min_speed
+            && fabs(gyro_rate) < speed_tolerance) {
+            total_correction = getSign(current_error) * min_speed;
+        }
+
+        // Positive total_correction turns clockwise
+        if (style == POINT_TURN) {
+            move(total_correction, total_correction * -1);
+        } else if (style == LEFT_SWING) {
+            spinSide(leftDrive, total_correction); // left side forward = clockwise
+            rightDrive.stop(brakeType::hold);
         } else {
-            error_sum = 0;
+            spinSide(rightDrive, total_correction * -1); // right side backward = clockwise
+            leftDrive.stop(brakeType::hold);
         }
-        if ((current_error * past_error) < 0) {
-            error_sum = 0;
-        }
-        porportional_correction = current_error * kp;
-        integral_correction = error_sum * ki;
-        // Brake: turning towards a bigger heading makes the error smaller, so push against the turning speed
-        derivative_correction = -gyro_rate * kd;
-        total_correction = cap(porportional_correction + integral_correction + derivative_correction, 100);
-
-        if (fabs(total_correction) < 10 && fabs(gyro_rate) < speed_tolerance) {
-            total_correction = getSign(total_correction) * 10;
-        }
-        
-        move(total_correction, total_correction * -1);
-        past_error = current_error;
         vexDelay(delay);
-        gyro_rate = getGyroRate(); // fresh reading for the exit check
     }
-    move(0, 0);
+    stopDriving();
 }
 
-void PID_forward(double target, double error_tolerance, double speed_tolerance, double timeout_ms) {
-    double startTime = Brain.timer(timeUnits::sec);
-    long delay = 10;
-    double kp = FORWARD_KP;
-    double ki = FORWARD_KI;
-    double kd = FORWARD_KD;
+void PID_turn(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    PIDController pid(TURN_KP, TURN_KI, TURN_KD, TURN_INTEGRAL_RANGE);
+    turnToHeading(target, error_tolerance, speed_tolerance, timeout_ms, max_speed, pid, POINT_TURN);
+}
 
-    double porportional_correction = 0;
-    double integral_correction = 0;
-    double derivative_correction = 0;
+void PID_turn_relative(double degrees, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    PID_turn(getInertial() + degrees, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+}
+
+void PID_turn_shortest(double heading, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    double current = getInertial();
+    // How far to turn, squeezed into -180 to 180 so we always go the short way
+    double difference = fmod(heading - current, 360);
+    if (difference > 180) {
+        difference -= 360;
+    } else if (difference < -180) {
+        difference += 360;
+    }
+    PID_turn(current + difference, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+}
+
+void PID_swing(double target, driveSide moving_side, double error_tolerance, double speed_tolerance,
+               double timeout_ms, double max_speed) {
+    PIDController pid(SWING_KP, SWING_KI, SWING_KD, SWING_INTEGRAL_RANGE);
+    turnStyle style = (moving_side == LEFT_SIDE) ? LEFT_SWING : RIGHT_SWING;
+    turnToHeading(target, error_tolerance, speed_tolerance, timeout_ms, max_speed, pid, style);
+}
+
+void PID_forward(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
+    double start_time = Brain.timer(timeUnits::msec);
+    long delay = 10;
+    PIDController pid(FORWARD_KP, FORWARD_KI, FORWARD_KD, FORWARD_INTEGRAL_RANGE);
+    SettleCheck settle(FORWARD_SETTLE_MS);
     double start_position = getPosition();
     double start_heading = getInertial(); // the heading we try to keep while driving
-    double heading_correction = 0;
-    double current_position = 0;
-    double target_distance = target;
-    double current_error = target_distance - current_position;
-    double past_error = current_error;
-    double error_sum = 0;
-    double total_correction = 0;
-    double integral_range = FORWARD_INTEGRAL_RANGE;
-    double motorRate = getMotorRate();
-    double current_time = 0;
+    pid.reset(target);
 
-    while (fabs(current_error) > error_tolerance || fabs(motorRate) > speed_tolerance) {
-        current_time = Brain.timer(timeUnits::sec) - startTime;
-        if (current_time * 1000 > timeout_ms) {
+    while (true) {
+        double time = Brain.timer(timeUnits::msec) - start_time;
+        if (time > timeout_ms) {
             break; // took too long, give up so autonomous can continue
         }
-        current_position = getPosition() - start_position;
-        current_error = target - current_position;
 
-        if (fabs(current_error) < integral_range) {
-            error_sum = error_sum + current_error;
-        } else {
-            error_sum = 0;
+        double current_error = target - (getPosition() - start_position);
+        double motor_rate = getMotorRate();
+        bool inside = fabs(current_error) < error_tolerance && fabs(motor_rate) < speed_tolerance;
+        if (settle.update(inside, time)) {
+            break;
         }
-        if ((current_error * past_error) < 0) {
-            error_sum = 0;
-        }
-        porportional_correction = current_error * kp;
-        integral_correction = error_sum * ki;
-        // Brake: driving towards the target makes the error smaller, so push against the driving speed
-        derivative_correction = -motorRate * kd;
-        total_correction = cap(porportional_correction + integral_correction + derivative_correction, 100);
+
+        double total_correction = cap(pid.compute(current_error, motor_rate), max_speed);
+
         // Speed up gently during the first 0.3 s (forwards and backwards) so the wheels don't slip
         // (only limits how hard it pushes, the direction still comes from the PID)
-        double ramp_limit = 30 + (current_time * 233);
-        if (current_time < 0.3 && fabs(total_correction) > ramp_limit) {
+        double ramp_limit = 30 + (time / 1000 * 233);
+        if (time < 300 && fabs(total_correction) > ramp_limit) {
             total_correction = getSign(total_correction) * ramp_limit;
         }
 
         // Keep driving straight: if the robot turned clockwise, heading_correction is negative,
         // which slows the left side and speeds up the right side to turn back
-        heading_correction = (start_heading - getInertial()) * FORWARD_HEADING_KP;
+        double heading_correction = (start_heading - getInertial()) * FORWARD_HEADING_KP;
 
         move(total_correction + heading_correction, total_correction - heading_correction);
-        past_error = current_error;
         vexDelay(delay);
-        motorRate = getMotorRate();
     }
-    move(0, 0);
+    stopDriving();
 }

@@ -22,8 +22,11 @@ void usercontrol(void) {
 }
 
 int main() {
+    calibrateInertial(); // keep the robot still for about 2 seconds while the inertial sensor calibrates
+
     PID_turn(90, 0.3, 0.2);
-    // The first parameter is target angle, in degrees. Note that this is absolute value, meaning that it's axis is in accordance to the field
-    // The second parameter is error tolerance, in deg. 
+    // The first parameter is target angle, in degrees. Note that this is absolute value, meaning that its axis is in accordance to the field
+    // The second parameter is error tolerance, in deg.
     // The third parameter is speed tolerance, in deg/10ms.
+    // The fourth parameter (optional) is the timeout, in milliseconds. If the turn takes longer than this, it stops. Default: TURN_TIMEOUT_MS
 }

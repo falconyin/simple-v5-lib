@@ -21,12 +21,13 @@ This library uses simple language and easy logic. It helps you get the hang of i
 
 1. **Download:** Download the code.
 2. **Start Project:** Start a project. If you already have one skip this step.
-3. **Copy Files:** Copy simpleV5lib.cpp to your src folder. Copy simpleV5lib.h to your include folder. in main.cpp, add #include "simpleV5lib.h" at the very beginning. In simpleV5LibConfig.h, chance the ports and motor ratios to the ones of your robot. Here is a image regarding which motor name refers to which motor
+3. **Copy Files:** Copy simpleV5lib.cpp to your src folder. Copy simpleV5lib.h and simpleV5LibConfig.h to your include folder. In main.cpp, add #include "simpleV5lib.h" at the very beginning. The library already creates `Brain` and `Controller`, so if your main.cpp has a `brain Brain;` line, delete it. In simpleV5LibConfig.h, change the ports and motor ratios to the ones of your robot. Here is an image regarding which motor name refers to which motor
 
 This is an example of a drivetrain and what the motor names (left front, left middle, etc.) stand for:
 ![Drivetrain](images/drivetrainExampleImage.png)
-4. **Tune:** Go to your simpleV5LibConfig.h file and tune your kp, ki, and kd constants by following this [YouTube Video Tutorial](https://www.youtube.com/watch?v=WN3_vxA_D04).
-5. **Code:** Start writing your autonomous routes! For some examples, view the Examples folder
+4. **Calibrate:** Call `calibrateInertial();` once before any movement (for example in `pre_auton`). It takes about 2 seconds, and the robot must stay still.
+5. **Tune:** Go to your simpleV5LibConfig.h file and tune your kp, ki, and kd constants by following this [YouTube Video Tutorial](https://www.youtube.com/watch?v=WN3_vxA_D04).
+6. **Code:** Start writing your autonomous routes! For some examples, view the Examples folder. Every movement stops on its own after a timeout (see `TURN_TIMEOUT_MS` and `FORWARD_TIMEOUT_MS`), so a stuck robot won't freeze your whole autonomous.
 ### Units
 * Forward targets are in inches. It is worth noting that a single tile is around 23.622 inches wide.
 * Turn targets are in degrees. You should know this, but 360 degrees make a full circle.

@@ -1,8 +1,10 @@
 #include "simpleV5lib.h"
+#include <atomic>
 #include <cstdio>
 
-static bool terminal_on = false;
-static bool screen_on = false;
+// Changed from your code, read by the background task that runs the movements
+static std::atomic<bool> terminal_on(false);
+static std::atomic<bool> screen_on(false);
 
 // Terminal
 const double PRINT_EVERY_MS = 20;

@@ -1,4 +1,5 @@
 #include "simpleV5lib.h"
+#include <atomic>
 
 const int MAX_AUTONS = 10;
 
@@ -6,7 +7,7 @@ static const char* auton_names[MAX_AUTONS];
 static void (*auton_routines[MAX_AUTONS])();
 static int auton_count = 0;
 static int selected = 0;
-static bool selector_running = false;
+static std::atomic<bool> selector_running(false); // shared with the background selector task
 static task* selector_task = nullptr;
 
 void addAuton(const char* name, void (*routine)()) {

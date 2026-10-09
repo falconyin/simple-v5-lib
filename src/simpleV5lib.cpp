@@ -1,4 +1,5 @@
 #include "simpleV5lib.h"
+#include <atomic>
 
 // ============================================================================
 // Devices
@@ -175,20 +176,21 @@ struct MotionRequest {
     double exit_range; // chained movements only: hand over to the next movement this close to the target
 };
 
-// Shared between your code and the background task ("volatile" = may change at any time)
-static volatile bool motion_running = false;   // a movement is started and not finished yet
-static volatile bool motion_requested = false; // a new movement is waiting for the task to pick it up
-static volatile bool cancel_requested = false; // cancelMovement() asked the movement to stop
-static volatile double motion_progress = 0;    // how far the current movement has gone (inches or degrees)
+// Shared between your code and the background task. std::atomic makes sure that when one task
+// changes a value, the other task sees the new value (and everything written before it).
+static std::atomic<bool> motion_running(false);   // a movement is started and not finished yet
+static std::atomic<bool> motion_requested(false); // a new movement is waiting for the task to pick it up
+static std::atomic<bool> cancel_requested(false); // cancelMovement() asked the movement to stop
+static std::atomic<double> motion_progress(0);    // how far the current movement has gone (inches or degrees)
 static MotionRequest next_motion;
 static task* motion_task = nullptr;
 
 // Motion chaining: a chained movement ends early on purpose, with the robot still moving
-static volatile bool last_was_chain = false;   // the last movement was chained and nothing has stopped the robot since
-static volatile double chain_heading = 0;      // the heading that chained movement was aiming for (or holding)
-static volatile double chain_end_time = -1;    // when it ended, -1 = no chained movement waiting for a follow-up
-static volatile bool chain_was_forward = false; // that chained movement was a PID_forward_chain...
-static volatile double chain_forward_end = 0;   // ...and this is where its target was (in getPosition() inches)
+static std::atomic<bool> last_was_chain(false);    // the last movement was chained and nothing has stopped the robot since
+static std::atomic<double> chain_heading(0);       // the heading that chained movement was aiming for (or holding)
+static std::atomic<double> chain_end_time(-1);     // when it ended, -1 = no chained movement waiting for a follow-up
+static std::atomic<bool> chain_was_forward(false); // that chained movement was a PID_forward_chain...
+static std::atomic<double> chain_forward_end(0);   // ...and this is where its target was (in getPosition() inches)
 
 // Keeps track of whether a movement is finished: inside the tolerances for at least settle_ms.
 // Call update() once per loop. It returns true when the movement is done.
@@ -355,10 +357,10 @@ static void driveForward(const MotionRequest &request) {
     double direction = getSign(target);
     // Measure the distance from where we start. Right after a chained PID_forward, measure from where
     // that one's target was instead: it handed over a bit early, and those inches must not get lost.
-    double start_position = (continuing && chain_was_forward) ? chain_forward_end : getPosition();
+    double start_position = (continuing && chain_was_forward) ? chain_forward_end.load() : getPosition();
     // The heading we try to keep while driving. After a chained turn the robot is still turning,
     // so keep the heading that turn was going for instead of wherever it is right now.
-    double start_heading = continuing ? chain_heading : getInertial();
+    double start_heading = continuing ? chain_heading.load() : getInertial();
 
     // Chaining: aim a bit past the target, so the robot is still moving when it gets there
     bool chaining = request.exit_range > 0;
@@ -434,7 +436,7 @@ static int motionLoop() {
             motion_requested = false;
             runMotion(next_motion);
             motion_running = false;
-        } else if (chain_end_time >= 0 && Brain.timer(timeUnits::msec) - chain_end_time > CHAIN_STOP_AFTER_MS) {
+        } else if (chain_end_time.load() >= 0 && Brain.timer(timeUnits::msec) - chain_end_time.load() > CHAIN_STOP_AFTER_MS) {
             // A chained movement ended but nothing followed it: don't leave the robot driving
             stopDriving();
             last_was_chain = false;
@@ -469,7 +471,13 @@ static MotionRequest makeChainRequest(motionType type, double target, double exi
 
 // Hand a movement to the background task. Waits for the previous movement to finish first.
 static void startMotion(const MotionRequest &request) {
-    waitUntilDone();
+    // Claim the drivetrain: wait until no movement is running, then mark it as running in one
+    // step (compare_exchange), so two tasks can never start a movement at the same moment
+    bool expected = false;
+    while (!motion_running.compare_exchange_weak(expected, true)) {
+        expected = false;
+        vexDelay(5);
+    }
     if (motion_task == nullptr) {
         // Made with "new" so the task object is never destroyed and the task keeps running
         motion_task = new task(motionLoop);
@@ -477,14 +485,13 @@ static void startMotion(const MotionRequest &request) {
     next_motion = request;
     cancel_requested = false;
     motion_progress = 0;
-    motion_running = true;
-    motion_requested = true;
+    motion_requested = true; // the background task sees next_motion once it sees this
 }
 
 // The heading to measure relative and shortest-way turns from. Right after a chained movement
 // the robot is still turning, so use the heading that movement was going for.
 static double currentHeadingForTurns() {
-    return last_was_chain ? chain_heading : getInertial();
+    return last_was_chain ? chain_heading.load() : getInertial();
 }
 
 static double relativeTarget(double degrees) {

@@ -19,6 +19,12 @@ motor_group rightDrive(rightFront, rightMiddle, rightBack);
 
 inertial Inertial(PORT_INERTIAL);
 
+// The gains the movements use. They start with the values from simpleV5LibConfig.h.
+PIDGains turnGains = {TURN_KP, TURN_KI, TURN_KD};
+PIDGains swingGains = {SWING_KP, SWING_KI, SWING_KD};
+PIDGains forwardGains = {FORWARD_KP, FORWARD_KI, FORWARD_KD};
+PIDGains arcGains = {ARC_KP, ARC_KI, ARC_KD};
+
 // ============================================================================
 // Small helpers
 // ============================================================================
@@ -169,7 +175,17 @@ struct MotionRequest {
     double target_y;
     bool backwards;    // driving to a point only: drive there backwards
     bool report_progress; // update motion_progress (for waitUntilTraveled)
+    // A copy of the gains, taken in your task when the movement starts. The background task only
+    // uses this copy, so changing turnGains & co. can never mix up a movement that is running.
+    PIDGains turn_gains;
+    PIDGains swing_gains;
+    PIDGains forward_gains;
+    PIDGains arc_gains;
 };
+
+static PIDController makePID(const PIDGains &gains, double integral_range) {
+    return PIDController(gains.kp, gains.ki, gains.kd, integral_range);
+}
 
 static MotionRequest makeRequest(motionType type, double target, double error_tolerance, double speed_tolerance,
                                  double timeout_ms, double max_speed);
@@ -182,6 +198,9 @@ static std::atomic<bool> cancel_requested(false); // cancelMovement() asked the 
 static std::atomic<double> motion_progress(0);    // how far the current movement has gone (inches or degrees)
 static MotionRequest next_motion;
 static task* motion_task = nullptr;
+// How the last movement went. Written by the background task before it sets motion_running to
+// false, read by lastMovementResult() after waiting for that, so the two never overlap.
+static MovementResult last_result = {0, 0, 0, false};
 
 // Motion chaining: a chained movement ends early on purpose, with the robot still moving
 static std::atomic<bool> last_was_chain(false);    // the last movement was chained and nothing has stopped the robot since
@@ -209,6 +228,23 @@ struct SettleCheck {
         return now_ms - inside_since >= settle_ms;
     }
 };
+
+// Keeps track of how far a movement went past its target. Call update() once per loop with the
+// error and the direction the movement goes (+1 or -1): a negative error * direction means past it.
+struct OvershootCheck {
+    double most = 0;
+
+    void update(double error, double direction) {
+        most = fmax(most, -error * direction);
+    }
+};
+
+static void saveResult(double start_time, double error, double overshoot, bool timed_out) {
+    last_result.time_ms = Brain.timer(timeUnits::msec) - start_time;
+    last_result.error = error;
+    last_result.overshoot = overshoot;
+    last_result.timed_out = timed_out;
+}
 
 // Speed up gently during the first 0.3 s so the wheels don't slip
 // (only limits how hard it pushes, the direction still comes from the PID)
@@ -295,15 +331,19 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
     telemetryStart(name, target, target - start_heading, request.timeout_ms);
 
     bool chained_exit = false;
+    bool timed_out = false;
+    OvershootCheck overshoot;
     while (!cancel_requested) {
         double time = Brain.timer(timeUnits::msec) - start_time;
         if (time > request.timeout_ms) {
+            timed_out = true;
             break; // took too long, give up so autonomous can continue
         }
 
         double current_heading = getInertial();
         double current_error = target - current_heading; // to the real target, not the chaining one
         double gyro_rate = getGyroRate();
+        overshoot.update(current_error, direction);
         if (request.report_progress) {
             motion_progress = fabs(current_heading - start_heading);
         }
@@ -367,6 +407,7 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
         telemetryUpdate(time, current_error, gyro_rate, total_correction, pid);
         vexDelay(delay);
     }
+    saveResult(start_time, target - getInertial(), overshoot.most, timed_out);
     endMovement(chained_exit, target);
     chain_was_forward = false;
 }
@@ -374,7 +415,7 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
 static void driveForward(const MotionRequest &request) {
     double start_time = Brain.timer(timeUnits::msec);
     long delay = 10;
-    PIDController pid(FORWARD_KP, FORWARD_KI, FORWARD_KD, FORWARD_INTEGRAL_RANGE);
+    PIDController pid = makePID(request.forward_gains, FORWARD_INTEGRAL_RANGE);
     SettleCheck settle(FORWARD_SETTLE_MS);
     bool continuing = last_was_chain; // the robot is still moving from a chained movement
     double target = request.target;
@@ -393,9 +434,12 @@ static void driveForward(const MotionRequest &request) {
     telemetryStart("PID_forward", target, target, request.timeout_ms);
 
     bool chained_exit = false;
+    bool timed_out = false;
+    OvershootCheck overshoot;
     while (!cancel_requested) {
         double time = Brain.timer(timeUnits::msec) - start_time;
         if (time > request.timeout_ms) {
+            timed_out = true;
             break; // took too long, give up so autonomous can continue
         }
 
@@ -403,6 +447,7 @@ static void driveForward(const MotionRequest &request) {
         double current_error = target - driven; // to the real target, not the chaining one
         double motor_rate = getMotorRate();
         motion_progress = fabs(driven);
+        overshoot.update(current_error, direction);
 
         if (chaining) {
             // Close enough (or already past it): hand over to the next movement without stopping
@@ -431,6 +476,7 @@ static void driveForward(const MotionRequest &request) {
         telemetryUpdate(time, current_error, motor_rate, total_correction, pid);
         vexDelay(delay);
     }
+    saveResult(start_time, target - (getPosition() - start_position), overshoot.most, timed_out);
     endMovement(chained_exit, start_heading);
     chain_was_forward = chained_exit;
     chain_forward_end = start_position + target;
@@ -446,7 +492,7 @@ const double POINT_FACING_TOLERANCE = 5;
 static void driveToPoint(const MotionRequest &request) {
     double start_time = Brain.timer(timeUnits::msec);
     long delay = 10;
-    PIDController pid(FORWARD_KP, FORWARD_KI, FORWARD_KD, FORWARD_INTEGRAL_RANGE);
+    PIDController pid = makePID(request.forward_gains, FORWARD_INTEGRAL_RANGE);
     SettleCheck settle(FORWARD_SETTLE_MS);
     bool continuing = last_was_chain; // the robot is still moving from a chained movement
     double tx = request.target_x;
@@ -460,9 +506,12 @@ static void driveToPoint(const MotionRequest &request) {
     pid.reset(first_error);
     telemetryStart("PID_drive_to_point", hypot(tx - start_x, ty - start_y), first_error, request.timeout_ms);
 
+    bool timed_out = false;
+    OvershootCheck overshoot;
     while (!cancel_requested) {
         double time = Brain.timer(timeUnits::msec) - start_time;
         if (time > request.timeout_ms) {
+            timed_out = true;
             break; // took too long, give up so autonomous can continue
         }
 
@@ -471,6 +520,8 @@ static void driveToPoint(const MotionRequest &request) {
         double distance = hypot(tx - getX(), ty - getY());
         double motor_rate = getMotorRate();
         motion_progress = hypot(getX() - start_x, getY() - start_y);
+        // Driving forward, a negative "ahead" means the robot drove past the point; backwards, a positive one
+        overshoot.update(ahead, request.backwards ? -1 : 1);
 
         // Keep aiming at the point, until we are close
         if (distance > POINT_AIM_DISTANCE) {
@@ -498,6 +549,7 @@ static void driveToPoint(const MotionRequest &request) {
         telemetryUpdate(time, ahead, motor_rate, power, pid);
         vexDelay(delay);
     }
+    saveResult(start_time, distanceAhead(tx, ty, getInertial()), overshoot.most, timed_out);
     endMovement(false, aim);
     chain_was_forward = false;
 }
@@ -517,25 +569,22 @@ static void runMotion(const MotionRequest &request) {
             MotionRequest turn = makeRequest(MOTION_TURN, heading + turn_needed, 0, 0, request.timeout_ms, request.max_speed);
             turn.exit_range = 5;
             turn.report_progress = false; // waitUntilTraveled counts inches driven, not degrees turned
-            PIDController pid(TURN_KP, TURN_KI, TURN_KD, TURN_INTEGRAL_RANGE);
-            turnToHeading(turn, pid, POINT_TURN, "PID_drive_to_point (turn)");
+            turnToHeading(turn, makePID(request.turn_gains, TURN_INTEGRAL_RANGE), POINT_TURN, "PID_drive_to_point (turn)");
         }
         if (!cancel_requested) {
             MotionRequest drive = request;
             drive.timeout_ms = request.timeout_ms - (Brain.timer(timeUnits::msec) - start_time);
             driveToPoint(drive);
+            last_result.time_ms = Brain.timer(timeUnits::msec) - start_time; // the turn counts too
         }
     } else if (request.type == MOTION_TURN || (request.type == MOTION_ARC && fabs(request.radius) < 1)) {
         // (an arc with radius 0 is a turn in place)
-        PIDController pid(TURN_KP, TURN_KI, TURN_KD, TURN_INTEGRAL_RANGE);
-        turnToHeading(request, pid, POINT_TURN, "PID_turn");
+        turnToHeading(request, makePID(request.turn_gains, TURN_INTEGRAL_RANGE), POINT_TURN, "PID_turn");
     } else if (request.type == MOTION_ARC) {
-        PIDController pid(ARC_KP, ARC_KI, ARC_KD, ARC_INTEGRAL_RANGE);
-        turnToHeading(request, pid, ARC, "PID_arc");
+        turnToHeading(request, makePID(request.arc_gains, ARC_INTEGRAL_RANGE), ARC, "PID_arc");
     } else {
-        PIDController pid(SWING_KP, SWING_KI, SWING_KD, SWING_INTEGRAL_RANGE);
         turnStyle style = (request.type == MOTION_SWING_LEFT) ? LEFT_SWING : RIGHT_SWING;
-        turnToHeading(request, pid, style, "PID_swing");
+        turnToHeading(request, makePID(request.swing_gains, SWING_INTEGRAL_RANGE), style, "PID_swing");
     }
 }
 
@@ -597,6 +646,10 @@ static void startMotion(const MotionRequest &request) {
         motion_task = new task(motionLoop);
     }
     next_motion = request;
+    next_motion.turn_gains = turnGains;
+    next_motion.swing_gains = swingGains;
+    next_motion.forward_gains = forwardGains;
+    next_motion.arc_gains = arcGains;
     cancel_requested = false;
     motion_progress = 0;
     motion_requested = true; // the background task sees next_motion once it sees this
@@ -762,6 +815,11 @@ void waitUntilTraveled(double amount) {
 
 bool isMoving() {
     return motion_running;
+}
+
+MovementResult lastMovementResult() {
+    waitUntilDone(); // the background task writes the result right before the movement counts as done
+    return last_result;
 }
 
 void cancelMovement() {

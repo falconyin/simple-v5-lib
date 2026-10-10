@@ -119,6 +119,14 @@ void setPose(double x, double y, double heading) {
     manual_changes++;
 }
 
+double getForwardTrackingWheel() {
+    return (forward_wheel != nullptr) ? wheelInches(forward_wheel) : 0;
+}
+
+double getSidewaysTrackingWheel() {
+    return (sideways_wheel != nullptr) ? wheelInches(sideways_wheel) : 0;
+}
+
 double getX() {
     return pose_x;
 }

@@ -323,6 +323,154 @@ int main() {
         check("  drive to point still gets there after the push", hypot(sim::x, sim::y - 48) < 1.5, sim::x, sim::y);
     }
 
+    // ---------- Gains that can be changed while the program runs, and movement results ----------
+    reset();
+    PID_turn(90, 0.5, 0.2);
+    MovementResult r = lastMovementResult();
+    check("result of turn to 90: done, small error, no timeout", !r.timed_out && fabs(r.error) < 0.5 && r.time_ms < 3000 && r.time_ms > 100, r.error, r.time_ms);
+    check("  error is target - where it ended", fabs(r.error - (90 - getInertial())) < 0.01, r.error, 90 - getInertial());
+    reset();
+    PID_forward(24, 0.3, 0.2);
+    double normal_overshoot = lastMovementResult().overshoot;
+    reset();
+    PIDGains saved_forward = forwardGains;
+    forwardGains.kd = 0; // no braking: it should go past the target
+    PID_forward(24, 0.3, 0.2);
+    r = lastMovementResult();
+    forwardGains = saved_forward;
+    check("forward without kD overshoots more", r.overshoot > normal_overshoot + 0.5, r.overshoot, normal_overshoot);
+    check("  overshoot = how far past 24 it went", r.overshoot > 0.5 && r.overshoot < 24, r.overshoot, 0);
+    reset();
+    forwardGains = {0, 0, 0}; // no power at all
+    PID_forward(24, 0.3, 0.2, 500);
+    r = lastMovementResult();
+    forwardGains = saved_forward;
+    check("forward with all gains 0: doesn't move, times out", r.timed_out && fabs(sim::y) < 0.5 && fabs(r.error - 24) < 0.5, r.timed_out, sim::y);
+    reset();
+    PID_forward_async(24, 0.3, 0.2);
+    // Change the gains right away, before the background task has even picked up the movement:
+    // the movement must still use the gains from when it was started
+    forwardGains = {0, 0, 0};
+    waitUntilDone();
+    forwardGains = saved_forward;
+    check("gains changed after start: movement keeps its own", fabs(sim::y - 24) < 1, sim::y, 24);
+
+    reset();
+    PID_drive_to_point(0, -24, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);
+    r = lastMovementResult();
+    check("backwards drive to point: overshoot is small, not 24", r.overshoot < 1 && fabs(sim::y + 24) < 1, r.overshoot, sim::y);
+
+    // The tuner's "every other try goes back" must bring the robot back to its spot
+    reset();
+    PID_arc(90, 24, 0.5, 0.2); PID_arc(0, -24, 0.5, 0.2); settle();
+    check("arc 90 on R24, then back on R-24 -> start", hypot(sim::x, sim::y) < 1.5 && fabs(getInertial()) < 1.5, hypot(sim::x, sim::y), getInertial());
+    reset();
+    PID_swing(90, LEFT_SIDE, 0.5, 0.2); PID_swing(0, LEFT_SIDE, 0.5, 0.2); settle();
+    check("swing to 90 and back with the left side -> start", hypot(sim::x, sim::y) < 1.5 && fabs(getInertial()) < 1.5, hypot(sim::x, sim::y), getInertial());
+
+    // ---------- Tuning from the controller ----------
+    reset();
+    task operator_task([]() -> int {
+        auto press = [](button &b, double ms) { b.down = true; vexDelay(ms); b.down = false; vexDelay(300); };
+        auto waitForMove = [] { vexDelay(300); while (isMoving()) vexDelay(10); vexDelay(300); };
+        vexDelay(300);
+        press(Controller.ButtonRight, 300); // TURN kP 3.2 -> 3.5
+        press(Controller.ButtonA, 300);     // try: turn to 90
+        waitForMove();
+        press(Controller.ButtonX, 300);     // FORWARD
+        press(Controller.ButtonA, 300);     // try: drive 24
+        waitForMove();
+        press(Controller.ButtonLeft, 1300); // FORWARD kP, held: smaller a few times
+        press(Controller.ButtonDown, 300);  // kI
+        press(Controller.ButtonDown, 300);  // kD
+        press(Controller.ButtonRight, 300); // FORWARD kD 0.78 -> 0.86
+        press(Controller.ButtonB, 300);     // done
+        return 0;
+    });
+    PIDGains saved_turn = turnGains;
+    double tune_start = sim::t_ms;
+    tuneWithController();
+    printf("   tuner: turn kP %.3g, forward kP %.3g kD %.3g, robot (%.2f, %.2f) facing %.1f\n",
+           turnGains.kp, forwardGains.kp, forwardGains.kd, sim::x, sim::y, getInertial());
+    check("tuner: Right makes turn kP 10% bigger (3.2 -> 3.5)", fabs(turnGains.kp - 3.5) < 1e-9, turnGains.kp, 3.5);
+    check("  A tried a turn to 90, X + A a 24 inch drive", fabs(getInertial() - 90) < 1.5 && fabs(sim::x - 24) < 1.5, getInertial(), sim::x);
+    check("  holding Left lowers forward kP a few times", forwardGains.kp < 11 && forwardGains.kp > 5, forwardGains.kp, 12);
+    check("  Down picks kD, Right makes it bigger", fabs(forwardGains.kd - 0.86) < 1e-9 && forwardGains.ki == saved_forward.ki, forwardGains.kd, forwardGains.ki);
+    check("  B ends it", sim::t_ms - tune_start < 15000, sim::t_ms - tune_start, 0);
+    turnGains = saved_turn;
+    forwardGains = saved_forward;
+
+    // ---------- Robot setup checks ----------
+    settle();
+    int rumbles = Controller.rumbles;
+    check("checkDevices: all plugged in -> true", checkDevices() && Controller.rumbles == rumbles, Controller.rumbles, rumbles);
+    sim::unplugged[PORT_LEFTMIDDLE] = true;
+    check("checkDevices: motor unplugged -> false, rumble", !checkDevices() && Controller.rumbles == rumbles + 1, Controller.rumbles, rumbles);
+    sim::unplugged[PORT_LEFTMIDDLE] = false;
+    sim::unplugged[PORT_INERTIAL] = true;
+    check("checkDevices: inertial unplugged -> false", !checkDevices(), 0, 0);
+    sim::unplugged[PORT_INERTIAL] = false;
+    sim::heat[PORT_RIGHTBACK] = 25;
+    check("checkDevices: motor at 60 C -> false", !checkDevices(), 0, 0);
+    sim::heat[PORT_RIGHTBACK] = 0;
+
+    reset();
+    check("testDrivetrain: correct setup -> true", testDrivetrain(), 0, 0);
+    reset();
+    sim::wrong_direction[PORT_RIGHTMIDDLE] = true;
+    check("testDrivetrain: one motor set the wrong way -> false", !testDrivetrain(), 0, 0);
+    sim::wrong_direction[PORT_RIGHTMIDDLE] = false;
+    reset();
+    for (int p = 0; p < 3; p++) sim::wrong_direction[p] = true;
+    check("testDrivetrain: whole left side the wrong way -> false", !testDrivetrain(), 0, 0);
+    for (int p = 0; p < 3; p++) sim::wrong_direction[p] = false;
+    reset();
+    sim::sides_swapped = true;
+    check("testDrivetrain: left and right swapped -> false", !testDrivetrain(), 0, 0);
+    sim::sides_swapped = false;
+    reset();
+    sim::gyro_rate_flipped = true;
+    check("testDrivetrain: gyro rate with the wrong sign -> false", !testDrivetrain(), 0, 0);
+    sim::gyro_rate_flipped = false;
+    reset();
+    sim::unplugged[PORT_LEFTBACK] = true;
+    check("testDrivetrain: motor unplugged -> false", !testDrivetrain(), 0, 0);
+    sim::unplugged[PORT_LEFTBACK] = false;
+
+    // ---------- Measuring the robot ----------
+    reset();
+    TrackWidthResult track = measureTrackWidth();
+    check("measureTrackWidth: 12 inch track", fabs(track.track_width - 12) < 0.1, track.track_width, 12);
+    check("  tracking wheel offsets (0 if none)", fabs(track.forward_offset - TRACKING_FORWARD_OFFSET) < 0.1
+          && fabs(track.sideways_offset - TRACKING_SIDEWAYS_OFFSET) < 0.1, track.forward_offset, track.sideways_offset);
+    reset();
+    sim::track = 13; // the wheels slide while turning, so the drivetrain turns like a wider one
+    track = measureTrackWidth();
+    sim::track = 12;
+    check("measureTrackWidth: robot that turns like a 13 inch track", fabs(track.track_width - 13) < 0.1, track.track_width, 13);
+
+    // These change the wheel sizes in the simulator, which makes odometry jump: keep them last
+    settle();
+    sim::wheel_diam = 3.30;    // the config says 3.25
+    sim::track_wheel_diam = TRACKING_WHEEL_DIAMETER_INCH + 0.05;
+    task pusher_task([]() -> int {
+        vexDelay(300);
+        Controller.ButtonA.down = true; vexDelay(200); Controller.ButtonA.down = false; vexDelay(200);
+        for (int i = 0; i < 48; i++) { sim::push(1); vexDelay(20); } // push it 48 inches
+        Controller.ButtonA.down = true; vexDelay(200); Controller.ButtonA.down = false;
+        return 0;
+    });
+    WheelSizeResult wheels = measureWheelSize(48);
+    check("measureWheelSize: real wheels are 3.30, not 3.25", fabs(wheels.wheel_diameter - 3.30) < 0.01, wheels.wheel_diameter, 3.30);
+    check("  tracking wheel (0 if none)", TRACKING_FORWARD_PORT < 0 ? wheels.tracking_wheel_diameter == 0
+          : fabs(wheels.tracking_wheel_diameter - sim::track_wheel_diam) < 0.01, wheels.tracking_wheel_diameter, sim::track_wheel_diam);
+    // The wheels are still bigger than the config says: the track width must use the measured size
+    reset();
+    track = measureTrackWidth();
+    check("measureTrackWidth after measureWheelSize: still 12", fabs(track.track_width - 12) < 0.1, track.track_width, 12);
+    check("  tracking wheel offsets with the measured wheel size", fabs(track.forward_offset - TRACKING_FORWARD_OFFSET) < 0.02
+          && fabs(track.sideways_offset - TRACKING_SIDEWAYS_OFFSET) < 0.02, track.forward_offset, track.sideways_offset);
+
     printf("%d failures\n", fails);
     fflush(stdout);
     _exit(fails);

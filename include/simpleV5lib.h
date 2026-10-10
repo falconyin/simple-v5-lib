@@ -53,6 +53,22 @@ struct PIDController {
     double compute(double error, double rate);
 };
 
+// The kP, kI and kD of one kind of movement
+struct PIDGains {
+    double kp;
+    double ki;
+    double kd;
+};
+
+// The gains the movements use. They start with the values from simpleV5LibConfig.h.
+// tuneWithController() changes them while the program runs, and you can change them in your own
+// code too (for example a gentler turn while carrying something heavy). A movement uses the gains
+// from the moment it starts, so a change only counts for the movements after it.
+extern PIDGains turnGains;    // PID_turn, PID_turn_relative, PID_turn_shortest, PID_turn_to_point
+extern PIDGains swingGains;   // PID_swing
+extern PIDGains forwardGains; // PID_forward, PID_drive_to_point
+extern PIDGains arcGains;     // PID_arc
+
 // ============================================================================
 // Setup
 // ============================================================================
@@ -82,6 +98,10 @@ double getY(); // inches
 
 // Starts the odometry background task. calibrateInertial and setPose already call it.
 void startOdometry();
+
+// How far each tracking wheel has rolled, in inches (0 if you don't have that wheel)
+double getForwardTrackingWheel();
+double getSidewaysTrackingWheel();
 
 // ============================================================================
 // Sensors
@@ -195,6 +215,19 @@ void waitUntilTraveled(double amount);
 // true while a movement is running
 bool isMoving();
 
+// How a movement went
+struct MovementResult {
+    double time_ms;   // how long it took
+    double error;     // how far from the target it ended: inches, or degrees for turns (like the graph's error)
+    double overshoot; // the furthest it went past the target (0 = it never went past)
+    bool timed_out;   // true if it gave up because it took longer than its timeout
+};
+
+// How the last movement went. If a movement is still running, waits for it to finish first.
+//   PID_turn(90, 0.5, 0.2);
+//   if (lastMovementResult().timed_out) { ... }
+MovementResult lastMovementResult();
+
 // Stop the current movement right away, or a chained one that is still rolling
 // (also called by tankDrive / arcadeDrive)
 void cancelMovement();
@@ -236,6 +269,57 @@ void graphOnScreen(bool on);
 // Used by the movements to report their data
 void telemetryStart(const char* name, double target, double start_error, double timeout_ms);
 void telemetryUpdate(double time_ms, double error, double speed, double output, const PIDController &pid);
+
+// Tune the PID gains from the controller, without downloading the program again:
+//   X              pick what to tune: turn, forward, swing or arc
+//   Up / Down      pick kP, kI or kD
+//   Right / Left   make it bigger / smaller (hold to keep changing)
+//   A              try it: the robot turns 90 degrees (or drives 24 inches, ...), the next try goes back
+//   B              done: shows the gains on the Brain screen and the terminal, to copy into
+//                  simpleV5LibConfig.h, and returns
+// The controller screen shows the value and how the last try went: time, overshoot and error.
+// THE ROBOT MOVES when you press A, give it room. See examples/tuning.
+void tuneWithController();
+
+// ============================================================================
+// Robot setup checks: find setup mistakes before they cost you a match
+// They show what they find on the Brain screen, the controller and the terminal.
+// See examples/robotSetup.
+// ============================================================================
+
+// Checks that every motor and sensor from simpleV5LibConfig.h is plugged in, and that no drive
+// motor is overheating. Doesn't move the robot. Returns true if everything is fine.
+// Good to call in pre_auton: the controller rumbles if something is wrong.
+bool checkDevices();
+
+// Drives each side of the drivetrain forward for a moment, to check the motor setup:
+// motors set to the wrong direction (LF_DIRECTION, ...), left and right mixed up, and whether the
+// inertial sensor's turning speed has the right sign. Returns true if everything is fine.
+// THE ROBOT MOVES (it turns a little each way), give it room.
+bool testDrivetrain();
+
+// Spins the robot in place 3 times and works out, with the inertial sensor, the TRACK_WIDTH_INCH
+// your drivetrain really turns with (wheels slide a little while turning, so it is often a bit
+// more than the tape measure says), and the TRACKING_..._OFFSET of your tracking wheels.
+// Shows the numbers to put in simpleV5LibConfig.h. THE ROBOT MOVES, give it room.
+// It counts inches with the wheel size, so run measureWheelSize() first: it uses that result
+// (in the same program run), even before you have put the new wheel size in the config.
+struct TrackWidthResult {
+    double track_width;     // inches, 0 if the measurement failed
+    double forward_offset;  // TRACKING_FORWARD_OFFSET (0 without a forward tracking wheel)
+    double sideways_offset; // TRACKING_SIDEWAYS_OFFSET (0 without a sideways tracking wheel)
+};
+TrackWidthResult measureTrackWidth();
+
+// Works out the real size of the wheels: press A (or tap the Brain screen), push the robot
+// straight forward by hand exactly push_inches (along a tape measure), press A again.
+// Shows the WHEEL_DIAMETER_INCH (and TRACKING_WHEEL_DIAMETER_INCH) to put in simpleV5LibConfig.h.
+// A wrong MOTOR_TO_WHEEL_GEAR_RATIO shows up here too, as a wheel size that is way off.
+struct WheelSizeResult {
+    double wheel_diameter;          // inches, 0 if the measurement failed
+    double tracking_wheel_diameter; // inches, 0 without a forward tracking wheel or if it failed
+};
+WheelSizeResult measureWheelSize(double push_inches);
 
 // ============================================================================
 // Driver control: call one of these inside the while loop in usercontrol()

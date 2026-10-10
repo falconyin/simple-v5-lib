@@ -1,0 +1,358 @@
+# How simple-v5-lib works
+
+This page explains the ideas behind every part of the library, in the order you meet them.
+You don't need any of it to *use* the library. But when you want to know why the robot
+does something, or want to write your own library later, start here. Every section points
+to the code that does it.
+
+- [1. PID: the heart of every movement](#1-pid-the-heart-of-every-movement)
+- [2. When is a movement finished?](#2-when-is-a-movement-finished)
+- [3. Driving straight and turning](#3-driving-straight-and-turning)
+- [4. Swings and arcs](#4-swings-and-arcs)
+- [5. Doing things while driving: the motion task](#5-doing-things-while-driving-the-motion-task)
+- [6. Chained movements](#6-chained-movements)
+- [7. Odometry: where is the robot?](#7-odometry-where-is-the-robot)
+- [8. Driving to a point](#8-driving-to-a-point)
+- [9. Tuning, step by step](#9-tuning-step-by-step)
+- [10. Setting up a new robot](#10-setting-up-a-new-robot)
+
+---
+
+## 1. PID: the heart of every movement
+
+Every movement works the same way. 100 times a second (every 10 ms) it:
+
+1. measures how far the robot still has to go: the **error** (`target - where we are`),
+2. works out a motor power from that error,
+3. sends the power to the motors.
+
+The "works out a power" part is the PID controller (`PIDController::compute` in
+`src/simpleV5lib.cpp`). The power is the sum of three parts:
+
+```
+power = kP * error  +  kI * (sum of recent errors)  -  kD * speed
+          P                  I                           D
+```
+
+### P: push harder the further away you are
+
+`kP * error` is the main push. Far from the target the error is big, so the robot drives
+fast; close to it the error is small, so it slows down. With only P, the robot usually
+arrives too fast and swings past the target: when it *gets* to the target the error is 0,
+but the robot is still moving.
+
+### D: brake
+
+`-kD * speed` pushes **against** the way the robot is moving. The faster the robot moves,
+the harder it brakes. This is what stops the swinging back and forth.
+
+Many PID examples use "change in error" instead of speed. While the target stays the same,
+the change in error is exactly the negative speed, so it's the same thing. Using the measured
+speed (from the motors or the gyro) has one advantage: it is smoother, and it doesn't jump
+when the target changes.
+
+### I: the final push
+
+When the robot is almost there, P is tiny (the error is tiny) and friction can stop the robot
+just short of the target. The I part adds up the error over time, so a small error that
+doesn't go away slowly builds up a push until the robot gets there.
+
+The I part is dangerous: if it adds up during the whole drive, it builds a huge push that
+makes the robot fly past the target. Two rules keep it under control:
+
+- **Integral range** (`TURN_INTEGRAL_RANGE`, `FORWARD_INTEGRAL_RANGE`): only add up the error
+  when the robot is closer to the target than this. Further away, the sum is reset to 0.
+- **Reset when crossing the target**: when the error changes sign, the robot just went past
+  the target, and the old push would only make it go further. The sum is reset to 0.
+
+### Speeding up gently
+
+At the start of a movement the error is at its biggest, so P asks for full power right away.
+Full power from standing still makes the wheels slip, and slipping wheels make the distance
+measurement wrong. So for the first 0.3 s, the power is limited to a ramp that starts at 30%
+and rises to 100% (`startRamp`). The ramp only limits how *hard* the robot pushes; the
+direction always comes from the PID.
+
+### The gains
+
+kP, kI and kD are called the **gains**. They start with the values in `simpleV5LibConfig.h`
+and live in `turnGains`, `forwardGains`, `swingGains` and `arcGains` while the program runs,
+so `tuneWithController()` (or your own code) can change them. Each movement copies the gains
+when it starts, so a change only counts for the movements after it.
+
+---
+
+## 2. When is a movement finished?
+
+A movement is finished when the robot is **close enough and has stopped**:
+
+- `error_tolerance`: closer to the target than this, and
+- `speed_tolerance`: moving slower than this,
+- both for at least `TURN_SETTLE_MS` / `FORWARD_SETTLE_MS` (50 ms by default).
+
+Why the speed, too? Without it, a robot flying past the target would count as "finished"
+for the moment it is close, and would then roll on. Why the settle time? A single reading can
+be lucky; staying inside the tolerances for a little while proves the robot really stopped.
+
+Two more ways a movement ends:
+
+- **Timeout**: if it takes longer than `timeout_ms` (a robot stuck against a wall never
+  reaches its target), it gives up so the rest of the autonomous can still run.
+  `lastMovementResult().timed_out` tells you this happened.
+- **Minimum turning power** (`TURN_MIN_SPEED`): a turn that has almost stopped, but isn't at the
+  target yet, gets at least this much power, so friction can't hold it just short.
+
+`lastMovementResult()` tells you how the last movement went: how long it took, how far it
+went past the target (the overshoot), and how far from the target it ended (the error).
+
+---
+
+## 3. Driving straight and turning
+
+### Turning in place (`PID_turn`)
+
+The error is `target heading - current heading` in degrees. The inertial sensor gives the
+heading (`getInertial`, clockwise is positive) and the turning speed for the D part
+(`getGyroRate`). The power goes to the two sides in opposite directions:
+`move(power, -power)`.
+
+Headings keep counting past 360: `PID_turn(450)` after `PID_turn(0)` turns 450 degrees, all
+the way. `PID_turn_shortest` and `PID_turn_relative` work out the target heading for you.
+
+### Driving straight (`PID_forward`)
+
+The error is `target - distance driven`, in inches. The distance comes from the drive motors:
+
+```
+inches = motor turns * MOTOR_TO_WHEEL_GEAR_RATIO * wheel circumference
+```
+
+averaged over the left and right side (`getPosition`). Motor speed gives the D part
+(`getMotorRate`).
+
+A drivetrain never drives perfectly straight: one side is always a bit stronger. So
+`PID_forward` remembers the heading it started with, and while driving it adds a small
+correction to one side and takes it from the other:
+
+```
+correction = (start heading - current heading) * FORWARD_HEADING_KP
+left  = power + correction
+right = power - correction
+```
+
+If both sides together would need more than `max_speed`, both are scaled down by the same
+amount (`moveLimited`), so the robot still steers the same way.
+
+---
+
+## 4. Swings and arcs
+
+### Swing turns (`PID_swing`)
+
+Only one side drives; the other side holds still (`brakeType::hold`). The robot turns around
+the wheels that hold still. It is the same loop as a turn in place, with the power going to
+one side only.
+
+### Arcs (`PID_arc`)
+
+An arc drives along a circle. Picture the middle of the robot following a circle of radius
+`r`. The wheels on the outside of the circle are `TRACK_WIDTH_INCH / 2` further from its
+center, the inside ones are that much closer:
+
+```
+outside wheels: (r + track/2) / r  times as fast as the middle of the robot
+inside wheels:  (r - track/2) / r  times as fast
+```
+
+To end up facing the target, the middle of the robot must drive along the circle for
+
+```
+arc length = angle to turn (in radians) * r
+```
+
+So the arc's PID works in **inches along the circle**, just like `PID_forward` (that's why the
+arc gains start from the forward gains). Each loop, the remaining angle becomes remaining
+inches, the PID gives the power for the middle of the robot, and the two sides get that power
+times their factor from above.
+
+This is why `TRACK_WIDTH_INCH` matters: with the wrong track width, the two sides go at the
+wrong ratio, and the robot curves on a different circle than you asked for.
+
+---
+
+## 5. Doing things while driving: the motion task
+
+Every movement runs in **one background task** (`motionLoop`). `PID_forward(...)` just hands the
+movement to that task and waits until it says "done". `PID_forward_async(...)` hands it over
+and returns right away, so your code can run an intake while the robot drives.
+
+The V5 brain runs tasks by taking turns: a task runs until it waits (`wait`, `vexDelay`), then
+the next task gets a turn. That's why every loop in the library has a `vexDelay`: without it,
+no other task would ever run.
+
+Your code and the background task share a few values (is a movement running, how far has it
+gone, ...). They are `std::atomic`, which guarantees that when one task changes a value, the
+other one sees the new value. Starting a movement "claims" the drivetrain in one step
+(`compare_exchange_weak` in `startMotion`), so two tasks can never start a movement at the same
+time; the second one waits until the first movement is done.
+
+---
+
+## 6. Chained movements
+
+A normal movement brakes to a full stop at its target. That's exact, but it wastes time:
+slow down, stop, speed up again for the next movement.
+
+A chained movement (`PID_forward_chain`, `PID_turn_chain`, ...) doesn't stop:
+
+1. Its PID aims a bit **past** the real target (by `exit_range`), so it doesn't slow down
+   much near the real target.
+2. As soon as the robot is within `exit_range` of the real target, it hands over to the next
+   movement **with the motors still running**.
+3. The next movement knows the robot is already moving, so it skips the gentle start
+   (`startRamp`).
+
+Some details that keep chains exact:
+
+- **The heading to keep**: after a chained turn, the robot is still turning when the next
+  `PID_forward` starts. "Keep the heading you start with" would lock in a heading a few degrees
+  short of the turn's target, so the forward keeps the heading the *turn was aiming for*.
+- **No lost distance**: a chained forward hands over a few inches early. A forward chained
+  after it measures from where the previous one's *target* was, so 24 + 24 + 24 ends at 72.
+- **Safety stop**: if nothing follows a chained movement within `CHAIN_STOP_AFTER_MS`, the
+  background task stops the drivetrain, so the robot can't drive off on its own.
+
+---
+
+## 7. Odometry: where is the robot?
+
+Odometry (`src/odometry.cpp`) keeps track of the robot's position on the field (x, y in inches,
+heading from the inertial sensor). Every 10 ms it:
+
+1. reads how far the robot moved forward (`Δforward`) and sideways (`Δsideways`) since last
+   time, and how much it turned (`Δθ`),
+2. turns that small movement "relative to the robot" into a movement "on the field",
+3. adds it to x and y.
+
+### Forward and sideways movement
+
+Without tracking wheels, the forward movement comes from the drive motors and the sideways
+movement is 0 (a tank drivetrain can't drive sideways... unless another robot pushes it).
+Tracking wheels are small unpowered wheels with a rotation sensor; they don't slip when the
+drivetrain pushes hard, and a sideways one also notices pushes.
+
+A tracking wheel that isn't in the middle of the robot also rolls when the robot turns in
+place: on a circle around the robot's center. That part isn't a movement of the robot, so
+it is taken out:
+
+```
+Δforward  += TRACKING_FORWARD_OFFSET  * Δθ   (Δθ in radians, clockwise is positive)
+Δsideways -= TRACKING_SIDEWAYS_OFFSET * Δθ
+```
+
+### Curves
+
+While turning, the robot moved along a little curve, but x and y need the straight line
+from the start to the end of it (the "chord"). For a circle piece, the chord is a little
+shorter than the curve:
+
+```
+chord = curve * 2 * sin(Δθ / 2) / Δθ
+```
+
+### Onto the field
+
+On the way, the robot faced, on average, halfway between its old and new heading:
+`θ = old heading + Δθ / 2`. With heading 0 pointing along +y and clockwise positive:
+
+```
+x += Δforward * sin(θ) + Δsideways * cos(θ)
+y += Δforward * cos(θ) - Δsideways * sin(θ)
+```
+
+### Resetting the position
+
+`setPose` and `setHeading` change the position or heading by hand. The heading would jump,
+and the next odometry step would see that jump as the robot turning. So these functions count
+up a counter (`manual_changes`), and when the odometry loop sees it change, its next reading
+starts fresh instead of counting as a movement.
+
+---
+
+## 8. Driving to a point
+
+`PID_drive_to_point(x, y)` uses odometry to drive to a field point:
+
+1. **Turn first**: if the robot faces more than `POINT_TURN_FIRST_ANGLE` away from the point,
+   it first turns towards it (a chained turn, so it doesn't stop in between).
+2. **Drive**: the PID error is how far the point is **in front of** the robot (measured along
+   the way it faces). If the robot drives past it, that becomes negative and it backs up.
+3. **Keep aiming**: every loop the robot works out the heading to the point again and steers
+   towards it, like the heading correction of `PID_forward`. So it still arrives if it gets
+   bumped or one side is weaker.
+4. **Slow down while not facing it**: the drive power is multiplied by `cos(aim error)`: full
+   power when facing the point, none when facing 90° away.
+5. **Close to the point**, it stops re-aiming (`POINT_AIM_DISTANCE`): there, a tiny position
+   change would swing the aim around wildly.
+
+It is finished when the point is (almost) 0 inches ahead, the robot has stopped, and it faces
+the way it was aiming. The robot can't drive sideways, so a tiny sideways miss is accepted.
+
+---
+
+## 9. Tuning, step by step
+
+Tune turns first (they are easiest to see), then forward, then swings and arcs.
+`examples/tuning` runs `tuneWithController()` with the live graph on the Brain screen.
+
+1. **Start simple**: set kI and kD to 0.
+2. **kP**: raise it until the robot gets to the target quickly but swings back and forth
+   around it a few times. Too low: slow, stops short. Too high: wild swinging.
+3. **kD**: raise it until the swinging stops: the overshoot (`ov` on the controller) gets close
+   to 0. Too much kD makes the robot slow, or makes it shake with a buzzing sound.
+4. **kI**, only if needed: does the robot stop a little short and stay there (`e` stays bigger
+   than your tolerance)? Raise kI in small steps. Keep the integral range small (a few
+   degrees or an inch or two).
+5. **Test with other distances**: a gain that's great for 90° might overshoot at 180°. Try a
+   small and a big movement.
+6. **Copy the gains** into `simpleV5LibConfig.h`: the tuner's changes are lost when the
+   program stops.
+
+| What you see | What to change |
+| --- | --- |
+| Goes past the target and swings back | more kD, or less kP |
+| Slow to get there | more kP |
+| Stops just short of the target | more kI (or more kP; for turns, more `TURN_MIN_SPEED`) |
+| Shakes or buzzes, power line jumps up and down | less kD |
+| Movement times out | look at the graph: stopped short (kI) or still swinging (kD) |
+| Turns go crazy, spinning faster and faster | `getGyroRate` has the wrong sign: run `testDrivetrain()` |
+
+---
+
+## 10. Setting up a new robot
+
+Most "the PID doesn't work" problems are really setup problems. `examples/robotSetup` runs these
+checks in order:
+
+- **`checkDevices()`** asks every device from `simpleV5LibConfig.h` if it is plugged in
+  (`installed()`), reads the motor temperatures (V5 motors lose power above 55 °C), and checks
+  that no port is used twice.
+- **`testDrivetrain()`** drives one side forward at a time and checks three things:
+  - Every motor on that side must report turning **forward**. A motor that reports backwards
+    has the wrong direction setting: it is fighting the other motors.
+  - The motors on the other side must not move. If they do, ports of the two sides are mixed up.
+  - The left side driving forward must turn the robot **clockwise** (the heading goes up), the
+    right side counter-clockwise. If not, that side physically drives backwards, or left and
+    right are swapped. While it turns, `getGyroRate()` must have the same sign as the heading
+    change; if not, the D part of every turn would push instead of brake.
+- **`measureTrackWidth()`** spins the robot in place 3 times. Each wheel rolls along a circle
+  around the robot's center, so `inches rolled = distance from the center * angle turned`.
+  The inertial sensor gives the angle, the motors give the inches, so the track width is
+  `(left inches - right inches) / angle`. Wheels slide sideways a little while turning, so the
+  result is often a bit more than the tape measure says, and that's the number arcs need.
+  The tracking wheel offsets come out the same way. The inches are counted with the wheel
+  size, so a wrong wheel size makes the track width wrong too: run `measureWheelSize()` first,
+  and `measureTrackWidth()` uses what it measured.
+- **`measureWheelSize(48)`**: you push the robot exactly 48 inches by hand. If the library
+  counted 47 inches, the wheels are really `48 / 47` times as big as the config says. A
+  wrong `MOTOR_TO_WHEEL_GEAR_RATIO` shows up here too, as a wheel size that is way off.

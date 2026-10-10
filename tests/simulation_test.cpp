@@ -534,6 +534,35 @@ int main() {
         placeRobot(40, 10, 90, 3, -2);
         check("a reset on the wrong wall (y) -> false", !resetYFromWall(FRONT_SENSOR, 72) && getY() == 8, getY(), 8);
 
+        placeRobot(65.5, 10, 90, 3, -2); // the front sensor is 0.5 inch from the wall
+        check("too close to the wall to measure -> false", !resetXFromWall(FRONT_SENSOR, 72) && getX() == 68.5, getX(), 68.5);
+        placeRobot(64.5, 10, 90, 3, -2); // 1.5 inches is fine
+        ok = resetXFromWall(FRONT_SENSOR, 72);
+        check("  1.5 inches from the wall is fine", ok && fabs(getX() - 64.5) < 0.01, ok, getX());
+        placeRobot(-60, 10, 90, 0, 0); // the back sensor sees the wall at x = -72
+        check("named wall behind the sensor -> false", !resetXFromWall(BACK_SENSOR, -40, 100) && getX() == -60, getX(), -60);
+        placeRobot(40, 10, 90, 8, 0);
+        check("8 inches off -> false by default", !resetXFromWall(FRONT_SENSOR, 72) && getX() == 48, getX(), 48);
+        ok = resetXFromWall(FRONT_SENSOR, 72, 12);
+        check("  but fine with max_change 12", ok && fabs(getX() - 40) < 0.01, ok, getX());
+        placeRobot(0, 10, 90, 0, 0);
+        PID_forward_async(30, 0.3, 0.2);
+        waitUntilTraveled(10);
+        sim::x += 3; // slipped: a reset now would fix it, if the robot weren't moving
+        ok = resetXFromWall(FRONT_SENSOR, 72);
+        double odometry_off = getX() - sim::x; // still about -3 (odometry is up to 10 ms behind)
+        waitUntilDone();
+        check("robot still moving -> false", !ok && fabs(odometry_off + 3) < 1, ok, odometry_off);
+        settle();
+        ok = resetXFromWall(FRONT_SENSOR, 72);
+        check("  after it stopped: fine", ok && fabs(getX() - sim::x) < 0.05, ok, getX() - sim::x);
+        placeRobot(40, 10, 60, 0, 0);
+        PID_turn_async(120, 0.5, 0.2);
+        waitUntilTraveled(30); // facing the wall at x = 72, turning in place
+        ok = resetXFromWall(FRONT_SENSOR, 72);
+        waitUntilDone();
+        check("  turning in place counts as moving", !ok, ok, 0);
+
         // The whole idea: the wheels slip, the wall fixes it, and the next movement gets there
         placeRobot(0, 0, 0, 0, 0);
         PID_drive_to_point(48, 24, 0.5, 0.2); PID_turn(90, 0.5, 0.2); settle();

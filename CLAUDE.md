@@ -132,8 +132,10 @@ inches aren't lost), and when it ended (`chain_end_time`, so `motionLoop` can st
 per-tick forward/sideways deltas, tracking-wheel offset compensation, chord correction, rotated into
 field coordinates by the mid-tick heading. `setPose`/`setHeading` bump a `manual_changes` counter
 (not a flag, so a change can't be lost) and the loop restarts its baseline when it sees it change.
-`setX`/`setY` (and `resetXFromWall`/`resetYFromWall`, which compute the value from a configured distance
-sensor, with an angle and a max-change guard) only overwrite one coordinate and need no baseline restart.
+`setX`/`setY` only overwrite one coordinate and need no baseline restart. `resetXFromWall`/`resetYFromWall`
+compute that value from a configured distance sensor, and refuse while moving, too close, with the wall
+behind the sensor, too angled, or with too big a change. The simulator's `distance::installed()` is
+true only on ports with a `sim::distance_mount`, so checkDevices can't probe other devices as distance sensors.
 Heading always comes from the inertial sensor, never from integration.
 
 **Sign conventions, easy to get wrong:**

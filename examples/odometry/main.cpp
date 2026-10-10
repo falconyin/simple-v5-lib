@@ -37,6 +37,7 @@ int main() {
     // start, at y = 30: face the wall and let the sensor measure. Without a sensor, it just
     // returns false and changes nothing (the terminal says why).
     PID_turn(0, 0.5, 0.2);
+    wait(100, msec); // let the robot come to a full stop: a moving robot is not reset
     resetYFromWall(FRONT_SENSOR, 30);
 
     // Show where the robot thinks it is. Push it around by hand and watch the numbers change.

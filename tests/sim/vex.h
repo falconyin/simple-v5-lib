@@ -181,7 +181,7 @@ struct rotation { int port; bool reversed;
     double inches = port == sim::fwd_wheel_port ? sim::fwd_wheel : port == sim::side_wheel_port ? sim::side_wheel : 0;
     return inches / (M_PI * sim::track_wheel_diam) * (reversed ? -1 : 1); } };
 enum class distanceUnits { mm, in, cm };
-struct distance { int port; distance(int p) : port(p) {} bool installed(){ return !sim::unplugged[port]; }
+struct distance { int port; distance(int p) : port(p) {} bool installed(){ return sim::distance_mount[port].on && !sim::unplugged[port]; }
   bool isObjectDetected(){ return sim::distanceSeen(port) >= 0; }
   double objectDistance(distanceUnits u){ double in = sim::distanceSeen(port); if (in < 0) in = 9999 / 25.4;
     return u == distanceUnits::in ? in : u == distanceUnits::cm ? in * 2.54 : in * 25.4; } };

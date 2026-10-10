@@ -101,15 +101,17 @@ bool checkDevices() {
     int problems = 0;
 
     // Two devices set to the same port in simpleV5LibConfig.h
-    struct Device { const char* name; int port; };
+    // (is_distance marks the distance sensors, which are checked further down too)
+    struct Device { const char* name; int port; bool is_distance; };
     Device devices[] = {
-        {"left front motor", PORT_LEFTFRONT},     {"left middle motor", PORT_LEFTMIDDLE},
-        {"left back motor", PORT_LEFTBACK},       {"right front motor", PORT_RIGHTFRONT},
-        {"right middle motor", PORT_RIGHTMIDDLE}, {"right back motor", PORT_RIGHTBACK},
-        {"inertial sensor", PORT_INERTIAL},
-        {"forward tracking wheel", TRACKING_FORWARD_PORT}, {"sideways tracking wheel", TRACKING_SIDEWAYS_PORT},
-        {"front distance sensor", DISTANCE_FRONT_PORT},    {"back distance sensor", DISTANCE_BACK_PORT},
-        {"left distance sensor", DISTANCE_LEFT_PORT},      {"right distance sensor", DISTANCE_RIGHT_PORT},
+        {"left front motor", PORT_LEFTFRONT, false},     {"left middle motor", PORT_LEFTMIDDLE, false},
+        {"left back motor", PORT_LEFTBACK, false},       {"right front motor", PORT_RIGHTFRONT, false},
+        {"right middle motor", PORT_RIGHTMIDDLE, false}, {"right back motor", PORT_RIGHTBACK, false},
+        {"inertial sensor", PORT_INERTIAL, false},
+        {"forward tracking wheel", TRACKING_FORWARD_PORT, false},
+        {"sideways tracking wheel", TRACKING_SIDEWAYS_PORT, false},
+        {"front distance sensor", DISTANCE_FRONT_PORT, true}, {"back distance sensor", DISTANCE_BACK_PORT, true},
+        {"left distance sensor", DISTANCE_LEFT_PORT, true},   {"right distance sensor", DISTANCE_RIGHT_PORT, true},
     };
     int device_count = sizeof(devices) / sizeof(devices[0]);
     for (int i = 0; i < device_count; i++) {
@@ -148,8 +150,8 @@ bool checkDevices() {
         report("No rotation sensor on port %d (sideways tracking wheel)", TRACKING_SIDEWAYS_PORT + 1);
         problems++;
     }
-    for (int i = device_count - 4; i < device_count; i++) { // the distance sensors: the last four in the list above
-        if (devices[i].port >= 0 && !distance(devices[i].port).installed()) {
+    for (int i = 0; i < device_count; i++) {
+        if (devices[i].is_distance && devices[i].port >= 0 && !distance(devices[i].port).installed()) {
             report("No distance sensor on port %d (%s)", devices[i].port + 1, devices[i].name);
             problems++;
         }

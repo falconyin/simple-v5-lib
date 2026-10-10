@@ -65,7 +65,7 @@ PID_drive_to_point(0, 0, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);  // back up t
 PID_turn_to_point(0, 48, 0.5, 0.2);                 // face (0, 48)
 getX(); getY();                                     // where the robot is now
 setY(70 - 7);                                       // after bumping into the wall at y = 70: fix only y
-resetXFromWall(RIGHT_SENSOR, 70);                   // a distance sensor sees the wall at x = 70: fix x
+resetXFromWall(RIGHT_SENSOR, 70);                   // stopped, a distance sensor sees the wall at x = 70: fix x
 
 // Chained: don't stop between movements (much faster). End with a normal movement.
 PID_forward_chain(24, 3);   // move on to the next movement 3 inches before the target

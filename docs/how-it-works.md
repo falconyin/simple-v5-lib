@@ -311,16 +311,27 @@ x = wall_x - reading * beam_x - sensor_x
 
 For a wall at `y = ...` it's the same with `cos` and `sensor_y`.
 
-Two checks keep a bad reading out:
+Some checks keep a bad reading out. Each one leaves the position alone and says why in the
+terminal:
+- **Still moving.** The sensor's reading is a little behind, so while the robot moves it belongs
+  to where the robot was a moment ago. If either side's wheels go faster than
+  `DISTANCE_RESET_MAX_SPEED`, nothing is changed. (Each side on its own: turning in place moves
+  the sensor too, even though the average speed is 0.)
+- **Too close.** The sensor can't measure under 20 mm, so a robot pressed against the wall
+  should use `setX` / `setY` instead.
+- **The wall behind the sensor.** If odometry says the wall is on the other side of the robot
+  than the sensor looks, it's the wrong sensor or the wrong wall.
 - **The angle.** When the sensor looks at the wall too much from the side (more than
   `DISTANCE_RESET_MAX_ANGLE`), the beam can hit something else, and the sensor measures less
   exactly. Then nothing is changed.
 - **The size of the change.** If the wall says the position is more than
   `DISTANCE_RESET_MAX_CHANGE` inches off, the sensor most likely saw another robot or a game
-  object, not the wall. Odometry is rarely that far off, so the reading is ignored.
+  object, not the wall. Odometry is rarely that far off, so the reading is ignored. After a big
+  crash, when it really can be, pass a bigger limit for that one reset:
+  `resetXFromWall(RIGHT_SENSOR, 70, 12)`.
 
 The distance sensor is most exact up close (about ±15 mm under 20 cm, about 5% further away),
-and its reading lags a little behind, so reset while the robot is still, near the wall.
+so reset near the wall.
 
 ---
 

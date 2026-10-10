@@ -108,14 +108,18 @@ void setY(double y);
 // straight on (within DISTANCE_RESET_MAX_ANGLE degrees). Works at any heading.
 //   resetXFromWall(RIGHT_SENSOR, 70);  // the right sensor sees the wall at x = 70: correct x
 //   resetYFromWall(FRONT_SENSOR, 70);  // the front sensor sees the wall at y = 70: correct y
-// Returns false and changes nothing if the sensor sees nothing, looks at the wall at too big an
-// angle, or says the position is more than DISTANCE_RESET_MAX_CHANGE inches off (that's most
-// likely another robot, not the wall). The terminal says why.
-// Best while the robot is still: the sensor is a little behind when it moves. Closer walls are
-// more exact (the sensor is about 0.6 inch off at 1 foot, more further away).
+// Returns false and changes nothing (the terminal says why) if:
+// - the robot is still moving (faster than DISTANCE_RESET_MAX_SPEED): the sensor is a little
+//   behind, so stop first. A chained or _async movement may still be rolling.
+// - the sensor sees nothing, or is too close to the wall to measure (under 20 mm)
+// - it looks at the wall at too big an angle, or the wall is behind it (wrong sensor or wall?)
+// - it says the position is more than max_change inches off: that's most likely another robot,
+//   not the wall. max_change is DISTANCE_RESET_MAX_CHANGE unless you pass a bigger one, for
+//   example after a crash: resetXFromWall(RIGHT_SENSOR, 70, 12);
+// Closer walls are more exact (the sensor is about 0.6 inch off at 1 foot, more further away).
 enum distanceSensor { FRONT_SENSOR, BACK_SENSOR, LEFT_SENSOR, RIGHT_SENSOR };
-bool resetXFromWall(distanceSensor sensor, double wall_x);
-bool resetYFromWall(distanceSensor sensor, double wall_y);
+bool resetXFromWall(distanceSensor sensor, double wall_x, double max_change = DISTANCE_RESET_MAX_CHANGE);
+bool resetYFromWall(distanceSensor sensor, double wall_y, double max_change = DISTANCE_RESET_MAX_CHANGE);
 
 // Starts the odometry background task. calibrateInertial and setPose already call it.
 void startOdometry();

@@ -144,7 +144,11 @@ const double DISTANCE_RIGHT_RIGHT = 0;
 const double DISTANCE_RESET_MAX_ANGLE = 20;
 // If the wall says the position is more than this many inches off, the sensor most likely saw
 // another robot or a game object instead of the wall, so the reset is skipped.
+// (After a big crash you can allow more for one reset, see resetXFromWall.)
 const double DISTANCE_RESET_MAX_CHANGE = 6;
+// The sensor's reading is a little behind, so the robot must be (almost) still: no wheel faster
+// than this, in inches/s, or the reset is skipped.
+const double DISTANCE_RESET_MAX_SPEED = 3;
 
 // Distance between the middle of the left wheels and the middle of the right wheels, in inches.
 // Arcs use it to work out how much faster the outside wheels must go. Measure your robot!

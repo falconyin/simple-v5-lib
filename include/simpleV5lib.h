@@ -276,6 +276,18 @@ void PID_turn_to_point_chain(double x, double y, double exit_range,
 // Copy it into a spreadsheet and make a line chart to see the movement.
 void logToTerminal(bool on);
 
+// Save the same data to a file on the Brain's SD card, to look at after a match or a skills run,
+// without a USB cable. Each program run makes a new file, with the first number that isn't taken
+// yet: pidlog1.csv, pidlog2.csv, ... (so when you delete old logs, delete all of them, then the
+// highest number is always the newest). It is one table, one line every 20 ms:
+//   move,name,time_ms,target,error,speed,output,p,i,d,x,y,heading
+// move counts the movements (1, 2, 3, ...), x, y and heading are where the robot was (odometry).
+// Open it in a spreadsheet, filter on one move and make a line chart.
+// The SD card is slow, so the data waits in memory and is written when the robot has stopped
+// (between movements): take the card out only after the robot is done.
+// Returns false (and logs nothing) if there is no SD card in the Brain.
+bool logToSDCard(bool on);
+
 // Draw the error (red) and the power (green) on the Brain screen while the robot moves.
 // The middle line is 0: a red line that crosses it means the robot went past the target.
 void graphOnScreen(bool on);
@@ -283,17 +295,39 @@ void graphOnScreen(bool on);
 // Used by the movements to report their data
 void telemetryStart(const char* name, double target, double start_error, double timeout_ms);
 void telemetryUpdate(double time_ms, double error, double speed, double output, const PIDController &pid);
+// Called by the background task while no movement is running: writes the logToSDCard data
+void telemetryWriteSDCard();
 
 // Tune the PID gains from the controller, without downloading the program again:
 //   X              pick what to tune: turn, forward, swing or arc
 //   Up / Down      pick kP, kI or kD
 //   Right / Left   make it bigger / smaller (hold to keep changing)
 //   A              try it: the robot turns 90 degrees (or drives 24 inches, ...), the next try goes back
-//   B              done: shows the gains on the Brain screen and the terminal, to copy into
+//   B              done: saves the gains on the SD card (if one is in, see loadGainsFromSDCard),
+//                  shows them on the Brain screen and the terminal, to copy into
 //                  simpleV5LibConfig.h, and returns
 // The controller screen shows the value and how the last try went: time, overshoot and error.
 // THE ROBOT MOVES when you press A, give it room. See examples/tuning.
 void tuneWithController();
+
+// ============================================================================
+// Keeping the tuned gains on the SD card
+// Gains changed while the program runs (by tuneWithController() or your code) are lost when it
+// stops. Save them on the Brain's SD card, and load them at the start of the next run:
+//   loadGainsFromSDCard(); // at the start of main or pre_auton
+// The file is pid_gains.txt, plain text: you can read it (and change it) on a computer too.
+// ============================================================================
+
+// Saves turnGains, swingGains, forwardGains and arcGains. Returns false if there is no SD card
+// or the file could not be written. tuneWithController() does this for you when you press B.
+bool saveGainsToSDCard();
+
+// Puts the gains from pid_gains.txt into turnGains, swingGains, forwardGains and arcGains, and
+// shows them in the terminal. Without an SD card or file (or if the file is over 2 KB) it returns false, and the gains stay
+// the ones from simpleV5LibConfig.h.
+// If you change a gain in simpleV5LibConfig.h after it was saved, the config wins for that gain:
+// the file remembers what the config said when it was saved, so it can tell.
+bool loadGainsFromSDCard();
 
 // ============================================================================
 // Robot setup checks: find setup mistakes before they cost you a match

@@ -625,6 +625,9 @@ static int motionLoop() {
             stopDriving();
             last_was_chain = false;
             chain_end_time = -1;
+        } else if (chain_end_time.load() < 0) {
+            // Nothing is moving: a good moment for the slow SD card (logToSDCard)
+            telemetryWriteSDCard();
         }
         vexDelay(5);
     }

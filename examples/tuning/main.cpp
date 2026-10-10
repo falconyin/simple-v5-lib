@@ -13,17 +13,21 @@ using namespace vex;
 
 int main() {
     calibrateInertial(); // keep the robot still for about 2 seconds
+    loadGainsFromSDCard(); // carry on from the gains of the last tuning session (if any)
 
     graphOnScreen(true); // red = error, green = power, the white line is 0
     logToTerminal(true); // numbers in the terminal (connect with a USB cable)
+    logToSDCard(true);   // and in pidlog1.csv, pidlog2.csv, ... on the SD card
 
     // Tune from the controller (the robot moves when you press A, give it room):
     //   X             pick what to tune: TURN, FORWARD, SWING or ARC
     //   Up / Down     pick kP, kI or kD
     //   Right / Left  make it 10% bigger / smaller (hold to keep changing)
     //   A             try it: turn 90 degrees, drive 24 inches, ... The next try goes back.
-    //   B             done: the Brain screen and the terminal show the gains to copy into
-    //                 simpleV5LibConfig.h (they are lost when the program stops!)
+    //   B             done: saves the gains on the SD card (loadGainsFromSDCard() above loads
+    //                 them next time), and shows them on the Brain screen and the terminal to
+    //                 copy into simpleV5LibConfig.h. Without an SD card they are lost when the
+    //                 program stops!
     // The controller shows how the last try went, for example "1.25s ov2.3 e0.12":
     //   1.25 seconds to finish, went 2.3 past the target at most, ended 0.12 from it.
     tuneWithController();
@@ -41,5 +45,7 @@ int main() {
     //
     // To make a chart from the terminal: copy the lines from "time_ms,..." down,
     // paste them into a spreadsheet (one value per column), and insert a line chart.
+    // From the SD card: open the newest pidlog file (the highest number), filter the "move" column to one movement
+    // and make a line chart of error and output against time_ms.
     // The p, i and d columns show how much each part of the PID is pushing.
 }

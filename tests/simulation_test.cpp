@@ -5,6 +5,8 @@
 #include "simpleV5lib.h"
 #include <cstdio>
 #include <unistd.h>
+#include <string>
+#include <vector>
 static int auton_runs = 0;
 static void testAuton() { auton_runs++; }
 static int fails = 0;
@@ -453,6 +455,7 @@ int main() {
     });
     PIDGains saved_turn = turnGains;
     double tune_start = sim::t_ms;
+    Brain.SDcard.inserted = true; // B saves the gains on it
     tuneWithController();
     printf("   tuner: turn kP %.3g, forward kP %.3g kD %.3g, robot (%.2f, %.2f) facing %.1f\n",
            turnGains.kp, forwardGains.kp, forwardGains.kd, sim::x, sim::y, getInertial());
@@ -461,8 +464,159 @@ int main() {
     check("  holding Left lowers forward kP a few times", forwardGains.kp < 11 && forwardGains.kp > 5, forwardGains.kp, 12);
     check("  Down picks kD, Right makes it bigger", fabs(forwardGains.kd - 0.86) < 1e-9 && forwardGains.ki == saved_forward.ki, forwardGains.kd, forwardGains.ki);
     check("  B ends it", sim::t_ms - tune_start < 15000, sim::t_ms - tune_start, 0);
+    std::string tuned = Brain.SDcard.files["pid_gains.txt"];
+    check("  B saves the gains on the SD card", tuned.find("TURN_KP = 3.5 config 3.2\n") != std::string::npos
+          && tuned.find("FORWARD_KD = 0.86 config 0.78\n") != std::string::npos, tuned.size(), 0);
     turnGains = saved_turn;
     forwardGains = saved_forward;
+
+    // ---------- SD card: gains ----------
+    auto sameGains = [](const PIDGains &a, const PIDGains &b) { return a.kp == b.kp && a.ki == b.ki && a.kd == b.kd; };
+    const PIDGains config_turn = turnGains, config_forward = forwardGains, config_swing = swingGains, config_arc = arcGains;
+    auto configGains = [&] { turnGains = config_turn; forwardGains = config_forward; swingGains = config_swing; arcGains = config_arc; };
+    Brain.SDcard.files.erase("pid_gains.txt");
+    Brain.SDcard.inserted = false;
+    turnGains.kp = 4.4;
+    check("no SD card: save -> false", !saveGainsToSDCard() && Brain.SDcard.files.empty(), Brain.SDcard.files.size(), 0);
+    check("no SD card: load -> false, gains unchanged", !loadGainsFromSDCard() && turnGains.kp == 4.4, turnGains.kp, 4.4);
+    Brain.SDcard.inserted = true;
+    check("no pid_gains.txt yet: load -> false, gains unchanged", !loadGainsFromSDCard() && turnGains.kp == 4.4, turnGains.kp, 4.4);
+    forwardGains.kd = 0.0123;
+    arcGains.ki = 0;
+    swingGains.kp = 1.0 / 3;
+    bool saved = saveGainsToSDCard();
+    configGains();
+    bool loaded = loadGainsFromSDCard();
+    printf("%s", Brain.SDcard.files["pid_gains.txt"].c_str());
+    check("save, then load: the saved gains are back", saved && loaded && turnGains.kp == 4.4 && forwardGains.kd == 0.0123
+          && arcGains.ki == 0 && fabs(swingGains.kp - 1.0 / 3) < 1e-9, turnGains.kp, forwardGains.kd);
+    check("  the others stay as they were", sameGains(turnGains, {4.4, config_turn.ki, config_turn.kd})
+          && forwardGains.kp == config_forward.kp && sameGains(arcGains, {config_arc.kp, 0, config_arc.kd}),
+          forwardGains.kp, config_forward.kp);
+    // A file changed by hand, and a config changed since the file was saved
+    configGains();
+    char edited[300];
+    snprintf(edited, sizeof(edited),
+             "# comment\r\n"
+             "TURN_KP = 4.4 config %g\r\n"   // the config said something else back then: config wins
+             "FORWARD_KP = 9 config %g\r\n"  // config unchanged: the file wins
+             "TURN_KD=40\r\n"                // typed by hand, without the config part
+             "FORWARD_KD = -1 config %g\r\n" // makes no sense: ignored
+             "ARC_KI = nan\r\n"
+             "LIFT_KP = 2\r\n",              // not ours: ignored
+             TURN_KP + 1, FORWARD_KP, FORWARD_KD);
+    Brain.SDcard.files["pid_gains.txt"] = edited;
+    loaded = loadGainsFromSDCard();
+    check("edited file: config changed since saving -> config", loaded && turnGains.kp == TURN_KP, turnGains.kp, TURN_KP);
+    check("  config unchanged -> the file's value", forwardGains.kp == 9, forwardGains.kp, 9);
+    check("  typed by hand without the config part", turnGains.kd == 40, turnGains.kd, 40);
+    check("  -1 and nan are ignored", forwardGains.kd == config_forward.kd && arcGains.ki == config_arc.ki, forwardGains.kd, arcGains.ki);
+    configGains();
+    // Too big to read all of it: half a line could slip through, so none of it is used
+    std::string big_file = std::string(2100, '#') + "\nTURN_KP = 4.4\n";
+    Brain.SDcard.files["pid_gains.txt"] = big_file;
+    check("gains file over 2 KB -> false, gains unchanged", !loadGainsFromSDCard() && turnGains.kp == config_turn.kp, turnGains.kp, config_turn.kp);
+
+    // ---------- SD card: logging ----------
+    // One table: move,name,time_ms,target,error,speed,output,p,i,d,x,y,heading
+    struct LogLine { int move; std::string name; double time, error, x, y; int fields; };
+    auto readLog = [](const std::string &text) {
+        std::vector<LogLine> lines;
+        size_t start = text.find('\n') + 1; // skip the header
+        while (start < text.size()) {
+            size_t end = text.find('\n', start);
+            std::string line = text.substr(start, end - start);
+            LogLine l = {0, "", 0, 0, 0, 0, 1};
+            for (char c : line) l.fields += (c == ',');
+            char name[64] = "";
+            double target, speed, output, p, i, d, heading;
+            sscanf(line.c_str(), "%d,%63[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &l.move, name, &l.time,
+                   &target, &l.error, &speed, &output, &p, &i, &d, &l.x, &l.y, &heading);
+            l.name = name;
+            lines.push_back(l);
+            start = end + 1;
+        }
+        return lines;
+    };
+    Brain.SDcard.inserted = true;
+    for (int n = 1; n <= 9999; n++) Brain.SDcard.files["pidlog" + std::to_string(n) + ".csv"] = "full";
+    check("logToSDCard: pidlog1 to pidlog9999 all taken -> false, nothing overwritten",
+          !logToSDCard(true) && Brain.SDcard.files["pidlog9999.csv"] == "full", 0, 0);
+    for (int n = 1; n <= 9999; n++) Brain.SDcard.files.erase("pidlog" + std::to_string(n) + ".csv");
+    Brain.SDcard.files["pidlog1.csv"] = "from an earlier run";
+    Brain.SDcard.inserted = false;
+    check("logToSDCard without a card -> false", !logToSDCard(true), 0, 0);
+    Brain.SDcard.inserted = true;
+    check("logToSDCard: a new file, pidlog2.csv", logToSDCard(true) && Brain.SDcard.files["pidlog1.csv"] == "from an earlier run"
+          && Brain.SDcard.files["pidlog2.csv"] == "move,name,time_ms,target,error,speed,output,p,i,d,x,y,heading\n",
+          Brain.SDcard.files.size(), 3);
+    reset();
+    Brain.SDcard.fastest_write_speed = 0;
+    int writes_before = Brain.SDcard.writes;
+    PID_forward_chain(24, 3);
+    vexDelay(40); // your code between two movements, the robot keeps driving meanwhile
+    PID_turn_chain(90, 10);
+    PID_forward(24, 0.3, 0.2);
+    settle();
+    std::vector<LogLine> log = readLog(Brain.SDcard.files["pidlog2.csv"]);
+    int moves = log.empty() ? 0 : log.back().move;
+    bool all_fields = true;
+    for (const LogLine &l : log) all_fields = all_fields && l.fields == 13;
+    printf("   log: %d lines, %d moves, %d writes, fastest wheel during a write %.1f in/s\n", (int)log.size(), moves,
+           Brain.SDcard.writes - writes_before, Brain.SDcard.fastest_write_speed);
+    check("log of a chained route: 3 moves, every line complete", moves == 3 && log.size() > 50 && all_fields, moves, log.size());
+    check("  written only after the robot stopped", Brain.SDcard.writes > writes_before && Brain.SDcard.fastest_write_speed < 1,
+          Brain.SDcard.writes - writes_before, Brain.SDcard.fastest_write_speed);
+    check("  last line: forward, error ~0, x/y where the robot is", log.size() > 0 && log.back().name == "PID_forward"
+          && fabs(log.back().error) < 0.5 && fabs(log.back().x - getX()) < 0.5 && fabs(log.back().y - getY()) < 0.5,
+          log.empty() ? 0 : log.back().x, getX());
+    bool every_20ms = log.size() > 0 && log[0].time == 0;
+    for (size_t k = 1; k < log.size(); k++) {
+        if (log[k].move == log[k - 1].move) {
+            every_20ms = every_20ms && log[k].time - log[k - 1].time >= 19.9 && log[k].time - log[k - 1].time < 30;
+        } else {
+            every_20ms = every_20ms && log[k].time == 0; // each movement starts at 0
+        }
+    }
+    check("  one line every 20 ms, from 0", every_20ms, 0, 0);
+    // Longer than the memory buffer holds: it has to write in the middle, without losing lines
+    reset();
+    t0 = sim::t_ms;
+    PID_forward(150, 0.3, 0.2, 12000, 20);
+    double long_time = sim::t_ms - t0;
+    settle();
+    log = readLog(Brain.SDcard.files["pidlog2.csv"]);
+    int long_lines = 0;
+    all_fields = true;
+    for (const LogLine &l : log) {
+        if (l.move == 4) long_lines++;
+        all_fields = all_fields && l.fields == 13;
+    }
+    check("11 s movement: every line is in the file", fabs(long_lines - long_time / 20) < 3 && all_fields
+          && Brain.SDcard.files["pidlog2.csv"].size() > 40000, long_lines, long_time / 20);
+    // Absurd numbers make a line too long for the buffer's line: left out, the file stays readable
+    reset();
+    PID_forward(1e250, 0.3, 0.2, 100);
+    settle();
+    log = readLog(Brain.SDcard.files["pidlog2.csv"]);
+    all_fields = true;
+    for (const LogLine &l : log) all_fields = all_fields && l.fields == 13 && l.move <= 4;
+    check("huge target: its lines are left out, the file is fine", all_fields, log.size(), 0);
+    // The card is taken out during a long movement: logging stops, it doesn't keep trying
+    reset();
+    task card_task([]() -> int { vexDelay(1000); Brain.SDcard.inserted = false; return 0; });
+    int tries_before = Brain.SDcard.tries;
+    PID_forward(150, 0.3, 0.2, 12000, 20);
+    settle();
+    check("card taken out: one failed write, then logging stops", Brain.SDcard.tries - tries_before == 1,
+          Brain.SDcard.tries - tries_before, 1);
+    Brain.SDcard.inserted = true;
+    check("  logToSDCard(true) carries on in the same file", logToSDCard(true), 0, 0);
+    logToSDCard(false);
+    size_t log_size = Brain.SDcard.files["pidlog2.csv"].size();
+    PID_turn(0, 0.5, 0.2);
+    settle();
+    check("logToSDCard(false): nothing more", Brain.SDcard.files["pidlog2.csv"].size() == log_size, Brain.SDcard.files["pidlog2.csv"].size(), log_size);
 
     // ---------- Robot setup checks ----------
     settle();

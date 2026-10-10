@@ -97,6 +97,26 @@ double getX(); // inches
 double getY(); // inches
 // (the heading is getInertial())
 
+// Change only x or only y, and keep the rest. For example after driving into a wall:
+//   PID_forward(30, 0.3, 0.2, 1500, 40); // bump gently into the wall at y = 70 (stops at the timeout)
+//   setY(70 - 7);                        // the robot's center is 7 inches from its front
+void setX(double x);
+void setY(double y);
+
+// Correct the position from a wall, with a distance sensor (set it up in simpleV5LibConfig.h).
+// wall_x / wall_y: where the wall is on the field. The sensor must look at that wall, roughly
+// straight on (within DISTANCE_RESET_MAX_ANGLE degrees). Works at any heading.
+//   resetXFromWall(RIGHT_SENSOR, 70);  // the right sensor sees the wall at x = 70: correct x
+//   resetYFromWall(FRONT_SENSOR, 70);  // the front sensor sees the wall at y = 70: correct y
+// Returns false and changes nothing if the sensor sees nothing, looks at the wall at too big an
+// angle, or says the position is more than DISTANCE_RESET_MAX_CHANGE inches off (that's most
+// likely another robot, not the wall). The terminal says why.
+// Best while the robot is still: the sensor is a little behind when it moves. Closer walls are
+// more exact (the sensor is about 0.6 inch off at 1 foot, more further away).
+enum distanceSensor { FRONT_SENSOR, BACK_SENSOR, LEFT_SENSOR, RIGHT_SENSOR };
+bool resetXFromWall(distanceSensor sensor, double wall_x);
+bool resetYFromWall(distanceSensor sensor, double wall_y);
+
 // Starts the odometry background task. calibrateInertial and setPose already call it.
 void startOdometry();
 

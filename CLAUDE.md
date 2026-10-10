@@ -47,9 +47,9 @@ g++ -std=c++17 -O1 -pthread -I include -I tests/sim src/*.cpp tests/simulation_t
 ```
 
 `tests/run_tests.sh` runs the suite **twice**: once with `include/simpleV5LibConfig.h` as-is, and once
-against a `sed`-patched copy in `build/tracking_include/` that enables tracking wheels. The script
+against a `sed`-patched copy in `build/tracking_include/` that enables tracking wheels and all four distance sensors. The script
 greps the patched file and fails loudly if the `sed` didn't match — so renaming or reformatting the
-`TRACKING_*` constants in the config breaks the second run and the script must be updated too.
+`TRACKING_*` or `DISTANCE_*` constants in the config breaks the second run and the script must be updated too.
 
 New tests are mutation-checked: break the code on purpose and confirm the test fails (the first tests for
 chained drive-to-point missed 5 of 6 such mutations). Timing traps in the cooperative simulator:
@@ -68,9 +68,9 @@ The library only ever includes `"vex.h"`, which it never ships. Both builds supp
 
 - `tests/sim/vex.h` — a ~200-line drivetrain simulator standing in for the whole VEX SDK: motors with
   a first-order speed response, an inertial sensor derived from wheel speeds, rotation sensors as
-  tracking wheels, simulated time (tests run far faster than real time), and cooperative "tasks"
-  that are real threads but only switch inside `vexDelay`/`wait`. It can inject setup faults
-  (`sim::unplugged`, `wrong_direction`, `sides_swapped`, `gyro_rate_flipped`, `wheel_diam`) which is
+  tracking wheels, distance sensors that measure to a 144-inch square of walls around (0, 0),
+  simulated time (tests run far faster than real time), and cooperative "tasks" that are real threads
+  but only switch inside `vexDelay`/`wait`. It can inject setup faults (`sim::unplugged`, `wrong_direction`, `sides_swapped`, `gyro_rate_flipped`, `wheel_diam`) which is
   how `src/robotSetup.cpp` is tested.
 - `ci/vex.h` — a copy of the `vex.h` a fresh VEXcode project generates, used only so the SDK build
   compiles. Consumers already have this file.
@@ -132,6 +132,8 @@ inches aren't lost), and when it ended (`chain_end_time`, so `motionLoop` can st
 per-tick forward/sideways deltas, tracking-wheel offset compensation, chord correction, rotated into
 field coordinates by the mid-tick heading. `setPose`/`setHeading` bump a `manual_changes` counter
 (not a flag, so a change can't be lost) and the loop restarts its baseline when it sees it change.
+`setX`/`setY` (and `resetXFromWall`/`resetYFromWall`, which compute the value from a configured distance
+sensor, with an angle and a max-change guard) only overwrite one coordinate and need no baseline restart.
 Heading always comes from the inertial sensor, never from integration.
 
 **Sign conventions, easy to get wrong:**

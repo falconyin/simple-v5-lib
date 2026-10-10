@@ -26,6 +26,16 @@ int main() {
     sim::side_wheel_offset = TRACKING_SIDEWAYS_OFFSET;
     sim::track_wheel_diam = TRACKING_WHEEL_DIAMETER_INCH;
     printf("tracking wheels: forward port %d, sideways port %d\n", TRACKING_FORWARD_PORT, TRACKING_SIDEWAYS_PORT);
+    // ... and the distance sensors
+    struct { int port; double ahead, right, looks; } distance_sensors[] = {
+        {DISTANCE_FRONT_PORT, DISTANCE_FRONT_AHEAD, DISTANCE_FRONT_RIGHT, 0},
+        {DISTANCE_BACK_PORT, DISTANCE_BACK_AHEAD, DISTANCE_BACK_RIGHT, 180},
+        {DISTANCE_LEFT_PORT, DISTANCE_LEFT_AHEAD, DISTANCE_LEFT_RIGHT, -90},
+        {DISTANCE_RIGHT_PORT, DISTANCE_RIGHT_AHEAD, DISTANCE_RIGHT_RIGHT, 90},
+    };
+    for (auto &s : distance_sensors) {
+        if (s.port >= 0) sim::distance_mount[s.port] = {true, s.ahead, s.right, s.looks};
+    }
 
     double t0, d0;
     // forward
@@ -456,6 +466,81 @@ int main() {
         sim::bump(6);
         waitUntilDone(); settle();
         check("  drive to point still gets there after the push", hypot(sim::x, sim::y - 48) < 1.5, sim::x, sim::y);
+    }
+
+    // ---------- Correcting the position from a wall ----------
+    reset();
+    PID_forward(12, 0.3, 0.2); settle();
+    double y_before = getY();
+    setX(5);
+    check("setX changes only x", getX() == 5 && getY() == y_before, getX(), getY());
+    setY(-3);
+    check("setY changes only y", getX() == 5 && getY() == -3, getX(), getY());
+    double dx = getX() - sim::x, dy = getY() - sim::y;
+    PID_turn(90, 0.5, 0.2); PID_forward(12, 0.3, 0.2); settle();
+    check("  odometry goes on from there", hypot(getX() - sim::x - dx, getY() - sim::y - dy) < 0.5, getX() - sim::x, dx);
+
+    // Puts the simulated robot at (x, y) facing heading, and tells odometry a position that is
+    // off by (off_x, off_y), as if the wheels had slipped
+    auto placeRobot = [](double x, double y, double heading, double off_x, double off_y) {
+        settle(); sim::x = x; sim::y = y;
+        setPose(x + off_x, y + off_y, heading);
+    };
+    if (DISTANCE_FRONT_PORT < 0) {
+        placeRobot(40, 10, 90, 3, -2);
+        check("no distance sensor: reset from wall -> false", !resetXFromWall(FRONT_SENSOR, 72)
+              && getX() == 43 && getY() == 8, getX(), getY());
+    } else {
+        placeRobot(40, 10, 90, 3, -2);
+        bool ok = resetXFromWall(FRONT_SENSOR, 72);
+        check("front sensor at the x wall: corrects x", ok && fabs(getX() - 40) < 0.01, ok, getX());
+        check("  y stays as it was", getY() == 8, getY(), 8);
+        placeRobot(-10, 50, 0, 3, -2);
+        ok = resetYFromWall(FRONT_SENSOR, 72);
+        check("front sensor at the y wall: corrects y", ok && fabs(getY() - 50) < 0.01 && getX() == -7, getY(), getX());
+        placeRobot(30, -20, 0, -4, 2);
+        ok = resetXFromWall(RIGHT_SENSOR, 72);
+        check("right sensor at the x wall", ok && fabs(getX() - 30) < 0.01, ok, getX());
+        placeRobot(-50, 20, 0, 4, 2);
+        ok = resetXFromWall(LEFT_SENSOR, -72);
+        check("left sensor at the -x wall", ok && fabs(getX() + 50) < 0.01, ok, getX());
+        placeRobot(15, -45, 0, 1, -5);
+        ok = resetYFromWall(BACK_SENSOR, -72);
+        check("back sensor at the -y wall", ok && fabs(getY() + 45) < 0.01, ok, getY());
+        placeRobot(40, 10, 103, 3, -2); // 13 degrees from straight on
+        ok = resetXFromWall(FRONT_SENSOR, 72);
+        check("front sensor at an angle (13 deg)", ok && fabs(getX() - 40) < 0.01, ok, getX());
+        placeRobot(-20, 40, 190, -2, 4); // the back sensor looks 10 degrees right of +y
+        ok = resetYFromWall(BACK_SENSOR, 72);
+        check("back sensor at an angle, heading 190", ok && fabs(getY() - 40) < 0.01, ok, getY());
+        placeRobot(30, 30, -80, 2, -3); // the right sensor looks 10 degrees up from +y
+        ok = resetYFromWall(RIGHT_SENSOR, 72);
+        check("right sensor at the y wall, heading -80", ok && fabs(getY() - 30) < 0.01, ok, getY());
+
+        placeRobot(40, 10, 120, 3, -2);
+        check("too big an angle (30 deg) -> false, unchanged", !resetXFromWall(FRONT_SENSOR, 72)
+              && getX() == 43 && getY() == 8, getX(), getY());
+        placeRobot(40, 10, 90, 3, -2);
+        sim::obstacle[DISTANCE_FRONT_PORT] = 15; // another robot in front of the sensor
+        check("sees a robot instead of the wall -> false", !resetXFromWall(FRONT_SENSOR, 72) && getX() == 43, getX(), 43);
+        sim::obstacle[DISTANCE_FRONT_PORT] = 0;
+        placeRobot(-60, 10, 90, 3, -2);
+        check("wall too far to see -> false", !resetXFromWall(FRONT_SENSOR, 72) && getX() == -57, getX(), -57);
+        placeRobot(40, 10, 90, 3, -2);
+        sim::unplugged[DISTANCE_FRONT_PORT] = true;
+        check("sensor unplugged -> false", !resetXFromWall(FRONT_SENSOR, 72) && getX() == 43, getX(), 43);
+        check("  checkDevices finds it", !checkDevices(), 0, 0);
+        sim::unplugged[DISTANCE_FRONT_PORT] = false;
+        placeRobot(40, 10, 90, 3, -2);
+        check("a reset on the wrong wall (y) -> false", !resetYFromWall(FRONT_SENSOR, 72) && getY() == 8, getY(), 8);
+
+        // The whole idea: the wheels slip, the wall fixes it, and the next movement gets there
+        placeRobot(0, 0, 0, 0, 0);
+        PID_drive_to_point(48, 24, 0.5, 0.2); PID_turn(90, 0.5, 0.2); settle();
+        sim::x += 4; // the robot slid 4 inches without the wheels noticing
+        bool fixed = resetXFromWall(FRONT_SENSOR, 72);
+        PID_drive_to_point(48, 48, 0.5, 0.2); settle();
+        check("slipped, reset from the wall, then drive to a point", fixed && hypot(sim::x - 48, sim::y - 48) < 1, sim::x, sim::y);
     }
 
     // ---------- Gains that can be changed while the program runs, and movement results ----------

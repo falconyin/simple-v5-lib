@@ -283,6 +283,45 @@ starts fresh instead of counting as a movement.
 for (`shiftChainHeading`) by the same jump. Without that, the next movement would keep the old
 number and turn the robot back to it.
 
+### Correcting the position from a wall
+
+Odometry adds up thousands of small movements, so small mistakes (a wheel slipping, a push
+the wheels didn't notice) add up too. The field walls don't move, so they can fix that.
+
+The simplest way needs no sensor: drive gently into a wall, and tell the robot where it is
+now with `setX` or `setY`. Only that one number changes; the other one and the heading stay.
+Odometry keeps reading the wheels and the inertial sensor as before, so (unlike `setPose`)
+no fresh start is needed.
+
+`resetXFromWall` and `resetYFromWall` do it from a distance, with a distance sensor. The
+sensor measures how far the wall is along its beam. Going back from the wall to the robot:
+
+```
+wall  →  along the beam, back to the sensor  →  from the sensor to the robot's center
+x = wall_x - reading * beam_x - sensor_x
+```
+
+- `beam_x` is how much of each inch along the beam goes in the x direction: `sin` of the
+  direction the sensor looks (the robot's heading, plus 0 for the front sensor, 90 for the
+  right one, ...). Looking straight at the wall it is 1 (or -1 for the wall on the other
+  side, which the minus sign handles), and at an angle it is less, because the beam travels
+  further to reach the wall.
+- `sensor_x` is where the sensor sits, measured from the robot's center
+  (`DISTANCE_..._AHEAD` and `_RIGHT`), turned onto the field like a movement in odometry.
+
+For a wall at `y = ...` it's the same with `cos` and `sensor_y`.
+
+Two checks keep a bad reading out:
+- **The angle.** When the sensor looks at the wall too much from the side (more than
+  `DISTANCE_RESET_MAX_ANGLE`), the beam can hit something else, and the sensor measures less
+  exactly. Then nothing is changed.
+- **The size of the change.** If the wall says the position is more than
+  `DISTANCE_RESET_MAX_CHANGE` inches off, the sensor most likely saw another robot or a game
+  object, not the wall. Odometry is rarely that far off, so the reading is ignored.
+
+The distance sensor is most exact up close (about ±15 mm under 20 cm, about 5% further away),
+and its reading lags a little behind, so reset while the robot is still, near the wall.
+
 ---
 
 ## 8. Driving to a point

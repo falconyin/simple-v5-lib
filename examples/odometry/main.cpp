@@ -32,6 +32,13 @@ int main() {
     PID_drive_to_point_chain(24, 0, 4);
     PID_drive_to_point(0, 0, 0.5, 0.2);
 
+    // Wheels slip, so odometry slowly drifts. A wall can fix it. With a distance sensor on the
+    // front of the robot (set its port in simpleV5LibConfig.h) and a wall 30 inches ahead of the
+    // start, at y = 30: face the wall and let the sensor measure. Without a sensor, it just
+    // returns false and changes nothing (the terminal says why).
+    PID_turn(0, 0.5, 0.2);
+    resetYFromWall(FRONT_SENSOR, 30);
+
     // Show where the robot thinks it is. Push it around by hand and watch the numbers change.
     while (true) {
         Brain.Screen.clearScreen();

@@ -256,6 +256,17 @@ static double startRamp(double power, double time_ms) {
     return power;
 }
 
+// Faster than this (inches/s), the robot counts as already driving: no gentle start needed
+const double ALREADY_DRIVING_SPEED = 5;
+
+// Is the robot still driving from a chained movement, the same way the next movement goes
+// (travel: +1 forward, -1 backwards)? Then that movement skips the gentle start. Only the
+// driving speed counts: after a chained turn in place the robot is turning, but not driving yet,
+// and when it rolls the other way it must reverse. Full power right away would make the wheels slip.
+static bool alreadyDriving(double travel) {
+    return last_was_chain && getMotorRate() * travel > ALREADY_DRIVING_SPEED;
+}
+
 // Called at the end of every movement
 static void endMovement(bool chained, double heading_to_keep) {
     if (chained) {
@@ -307,7 +318,8 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
     double start_time = Brain.timer(timeUnits::msec);
     long delay = 10;
     SettleCheck settle(TURN_SETTLE_MS);
-    bool continuing = last_was_chain; // the robot is still moving from a chained movement
+    // (arcs only) still driving along the circle from a chained movement: no gentle start
+    bool driving = alreadyDriving(getSign(request.radius));
     double start_heading = getInertial();
     double target = request.target;
     double direction = getSign(target - start_heading); // +1 = this turn goes clockwise
@@ -374,7 +386,7 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
             push_direction = getSign(current_error);
         }
         total_correction = cap(total_correction, max_speed);
-        if (style == ARC && !continuing) {
+        if (style == ARC && !driving) {
             total_correction = startRamp(total_correction, time);
         }
 
@@ -420,6 +432,7 @@ static void driveForward(const MotionRequest &request) {
     bool continuing = last_was_chain; // the robot is still moving from a chained movement
     double target = request.target;
     double direction = getSign(target);
+    bool driving = alreadyDriving(direction); // ...and driving this way, not only turning: no gentle start
     // Measure the distance from where we start. Right after a chained PID_forward, measure from where
     // that one's target was instead: it handed over a bit early, and those inches must not get lost.
     double start_position = (continuing && chain_was_forward) ? chain_forward_end.load() : getPosition();
@@ -463,8 +476,8 @@ static void driveForward(const MotionRequest &request) {
         }
 
         double total_correction = cap(pid.compute(pid_target - driven, motor_rate), request.max_speed);
-        if (!continuing) {
-            total_correction = startRamp(total_correction, time); // no ramp if we are already moving
+        if (!driving) {
+            total_correction = startRamp(total_correction, time); // no ramp if we are already driving
         }
 
         // Keep driving straight: if the robot turned clockwise, heading_correction is negative,
@@ -499,7 +512,6 @@ static void driveToPoint(const MotionRequest &request) {
     long delay = 10;
     PIDController pid = makePID(request.forward_gains, FORWARD_INTEGRAL_RANGE);
     SettleCheck settle(FORWARD_SETTLE_MS);
-    bool continuing = last_was_chain; // the robot is still moving from a chained movement
     double tx = request.target_x;
     double ty = request.target_y;
     double start_x = getX();
@@ -509,6 +521,7 @@ static void driveToPoint(const MotionRequest &request) {
     double aim = heading + wrap180(headingTo(tx, ty) + flip - heading); // the heading to drive along
     double first_error = distanceAhead(tx, ty, heading);
     double travel = request.backwards ? -1 : 1; // the way the robot drives: +1 forward, -1 backwards
+    bool driving = alreadyDriving(travel); // still driving this way from a chained movement: no gentle start
 
     // Chaining: aim a bit past the point, so the robot is still moving when it gets there
     bool chaining = request.exit_range > 0;
@@ -559,8 +572,8 @@ static void driveToPoint(const MotionRequest &request) {
         }
 
         double power = cap(pid.compute(ahead + pid_offset, motor_rate), request.max_speed);
-        if (!continuing) {
-            power = startRamp(power, time); // no ramp if we are already moving
+        if (!driving) {
+            power = startRamp(power, time); // no ramp if we are already driving
         }
         // Not facing the point yet? Drive slower until the robot has turned towards it
         power *= fmax(cos(aim_error * M_PI / 180), 0);
@@ -600,8 +613,15 @@ static void runMotion(const MotionRequest &request) {
             MotionRequest drive = request;
             drive.timeout_ms = request.timeout_ms - (Brain.timer(timeUnits::msec) - start_time);
             driveToPoint(drive);
-            last_result.time_ms = Brain.timer(timeUnits::msec) - start_time; // the turn counts too
+        } else {
+            // Cancelled before driving: the result so far is the turn's (in degrees), or, without a
+            // turn, still the previous movement's. Report it like a drive to a point instead:
+            // inches still left to drive, it never went past the point, and it didn't time out.
+            last_result.error = distanceAhead(request.target_x, request.target_y, getInertial());
+            last_result.overshoot = 0;
+            last_result.timed_out = false;
         }
+        last_result.time_ms = Brain.timer(timeUnits::msec) - start_time; // the turn counts too
     } else if (request.type == MOTION_TURN || (request.type == MOTION_ARC && fabs(request.radius) < 1)) {
         // (an arc with radius 0 is a turn in place)
         turnToHeading(request, makePID(request.turn_gains, TURN_INTEGRAL_RANGE), POINT_TURN, "PID_turn");
@@ -687,6 +707,13 @@ static void startMotion(const MotionRequest &request) {
 // the robot is still turning, so use the heading that movement was going for.
 static double currentHeadingForTurns() {
     return last_was_chain ? chain_heading.load() : getInertial();
+}
+
+// Called by setHeading: the heading numbers just jumped by this many degrees. Move the heading a
+// chained movement was going for by the same amount, so the next movement still aims at the same
+// real direction (otherwise it would turn the robot back to the old number).
+void shiftChainHeading(double degrees) {
+    chain_heading = chain_heading + degrees;
 }
 
 static double relativeTarget(double degrees) {

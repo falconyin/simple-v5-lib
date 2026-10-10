@@ -56,7 +56,7 @@ PID_turn_shortest(270, 0.5, 0.2);                   // face 270 degrees, whichev
 PID_swing(90, LEFT_SIDE, 0.5, 0.2);                 // swing to 90 degrees: only the left side moves
 PID_arc(90, 24, 0.5, 0.2);                          // curve along a 24 inch circle until facing 90
 PID_arc(0, -24, 0.5, 0.2);                          // same, but backing up (negative radius)
-setHeading(0);                                      // "the robot is facing 0 degrees right now"
+setHeading(0);                                      // "the robot is facing 0 degrees right now" (fine mid-chain too)
 
 // Odometry: field points in inches, x to the right, y forward
 setPose(0, 0, 0);                                   // "I'm at (0, 0) facing 0" (calibrateInertial does this too)
@@ -73,7 +73,7 @@ PID_forward(24, 0.3, 0.2);  // stops exactly at the end
 
 // Do something while driving
 PID_forward_async(48, 0.3, 0.2);   // start driving, and keep going in your code right away
-waitUntilTraveled(24);             // wait until 24 inches are done (degrees for turns)
+waitUntilTraveled(24);             // wait until 24 inches are done (degrees for turns, swings, arcs)
 intake.spin(forward);              // your own motor
 waitUntilDone();                   // wait until the drive is finished
 cancelMovement();                  // stop the current movement now

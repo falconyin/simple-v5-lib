@@ -209,8 +209,10 @@ A chained movement (`PID_forward_chain`, `PID_turn_chain`, ...) doesn't stop:
    much near the real target.
 2. As soon as the robot is within `exit_range` of the real target, it hands over to the next
    movement **with the motors still running**.
-3. The next movement knows the robot is already moving, so it skips the gentle start
-   (`startRamp`).
+3. If the robot is still *driving* the way the next movement goes (faster than
+   `ALREADY_DRIVING_SPEED`), that movement skips the gentle start (`startRamp`). After a chained
+   turn in place the robot is turning but not driving, and a backward drive after a forward one
+   has to reverse first: both still start gently, or the wheels would slip.
 
 Some details that keep chains exact:
 
@@ -276,6 +278,10 @@ y += Δforward * cos(θ) - Δsideways * sin(θ)
 and the next odometry step would see that jump as the robot turning. So these functions count
 up a counter (`manual_changes`), and when the odometry loop sees it change, its next reading
 starts fresh instead of counting as a movement.
+
+`setHeading` between chained movements also moves the heading the chained movement was aiming
+for (`shiftChainHeading`) by the same jump. Without that, the next movement would keep the old
+number and turn the robot back to it.
 
 ---
 

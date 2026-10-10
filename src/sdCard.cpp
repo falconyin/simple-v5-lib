@@ -78,6 +78,12 @@ bool loadGainsFromSDCard() {
         printf("loadGainsFromSDCard: no %s on the SD card yet, using the gains from simpleV5LibConfig.h\n", GAINS_FILE);
         return false;
     }
+    if (Brain.SDcard.size(GAINS_FILE) > GAINS_FILE_MAX_SIZE) {
+        // Reading only the start of it could miss half a line: don't use any of it
+        printf("loadGainsFromSDCard: %s is too big (over %d bytes), using the gains from simpleV5LibConfig.h\n",
+               GAINS_FILE, GAINS_FILE_MAX_SIZE);
+        return false;
+    }
     char text[GAINS_FILE_MAX_SIZE + 1];
     int length = Brain.SDcard.loadfile(GAINS_FILE, (uint8_t*)text, GAINS_FILE_MAX_SIZE);
     if (length <= 0) {

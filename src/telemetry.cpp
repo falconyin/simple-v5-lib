@@ -16,7 +16,6 @@ static double last_print_time = 0;
 // writes them when no movement is running. Only the background task touches the buffer.
 static char sd_file[16] = "";     // the file of this program run, set once by logToSDCard
 const int SD_BUFFER_SIZE = 32768; // about 10 seconds of movements
-const int SD_LONGEST_LINE = 200;
 static char sd_buffer[SD_BUFFER_SIZE];
 static int sd_buffer_used = 0;
 static bool sd_this_movement = false; // the movement that is running now is being logged
@@ -52,12 +51,19 @@ bool logToSDCard(bool on) {
     }
     if (sd_file[0] == 0) {
         // A new file for this program run: the first number that isn't taken yet
+        const int MOST_FILES = 9999;
         char name[sizeof(sd_file)];
-        for (int number = 1; number < 10000; number++) {
+        int number = 1;
+        for (; number <= MOST_FILES; number++) {
             snprintf(name, sizeof(name), "pidlog%d.csv", number);
             if (!Brain.SDcard.exists(name)) {
                 break;
             }
+        }
+        if (number > MOST_FILES) {
+            printf("logToSDCard: the SD card already has pidlog1.csv to pidlog%d.csv, delete some\n", MOST_FILES);
+            fflush(stdout);
+            return false;
         }
         char header[] = "move,name,time_ms,target,error,speed,output,p,i,d,x,y,heading\n";
         int length = strlen(header);
@@ -82,6 +88,7 @@ void telemetryWriteSDCard() {
         printf("logToSDCard: could not write to %s, was the SD card taken out? Logging stopped.\n", sd_file);
         fflush(stdout);
         sd_card_on = false;
+        sd_this_movement = false; // also for the rest of this movement: don't keep trying while it drives
     }
     sd_buffer_used = 0;
 }
@@ -137,13 +144,19 @@ void telemetryUpdate(double time_ms, double error, double speed, double output, 
         last_print_time = time_ms;
     }
     if (sd_this_movement && time_ms - last_sd_time >= PRINT_EVERY_MS) {
-        if (SD_BUFFER_SIZE - sd_buffer_used < SD_LONGEST_LINE) {
-            telemetryWriteSDCard(); // a very long movement: the buffer is full, it can't wait
+        char line[256];
+        int length = snprintf(line, sizeof(line), "%d,%s,%.0f,%.2f,%.3f,%.3f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f\n",
+                              sd_movement_number, sd_movement_name, time_ms, sd_target, error, speed, output,
+                              pid.last_p, pid.last_i, pid.last_d, getX(), getY(), getInertial());
+        if (length > 0 && length < (int)sizeof(line)) { // (a line with absurdly huge numbers is left out)
+            if (sd_buffer_used + length > SD_BUFFER_SIZE) {
+                telemetryWriteSDCard(); // a very long movement: the buffer is full, it can't wait
+            }
+            if (sd_this_movement) { // (false if that write failed)
+                memcpy(sd_buffer + sd_buffer_used, line, length);
+                sd_buffer_used += length;
+            }
         }
-        sd_buffer_used += snprintf(sd_buffer + sd_buffer_used, SD_BUFFER_SIZE - sd_buffer_used,
-                                   "%d,%s,%.0f,%.2f,%.3f,%.3f,%.1f,%.1f,%.1f,%.1f,%.2f,%.2f,%.2f\n",
-                                   sd_movement_number, sd_movement_name, time_ms, sd_target, error, speed, output,
-                                   pid.last_p, pid.last_i, pid.last_d, getX(), getY(), getInertial());
         last_sd_time = time_ms;
     }
     if (screen_on) {

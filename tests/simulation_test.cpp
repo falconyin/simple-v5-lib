@@ -512,6 +512,10 @@ int main() {
     check("  typed by hand without the config part", turnGains.kd == 40, turnGains.kd, 40);
     check("  -1 and nan are ignored", forwardGains.kd == config_forward.kd && arcGains.ki == config_arc.ki, forwardGains.kd, arcGains.ki);
     configGains();
+    // Too big to read all of it: half a line could slip through, so none of it is used
+    std::string big_file = std::string(2100, '#') + "\nTURN_KP = 4.4\n";
+    Brain.SDcard.files["pid_gains.txt"] = big_file;
+    check("gains file over 2 KB -> false, gains unchanged", !loadGainsFromSDCard() && turnGains.kp == config_turn.kp, turnGains.kp, config_turn.kp);
 
     // ---------- SD card: logging ----------
     // One table: move,name,time_ms,target,error,speed,output,p,i,d,x,y,heading
@@ -534,6 +538,11 @@ int main() {
         }
         return lines;
     };
+    Brain.SDcard.inserted = true;
+    for (int n = 1; n <= 9999; n++) Brain.SDcard.files["pidlog" + std::to_string(n) + ".csv"] = "full";
+    check("logToSDCard: pidlog1 to pidlog9999 all taken -> false, nothing overwritten",
+          !logToSDCard(true) && Brain.SDcard.files["pidlog9999.csv"] == "full", 0, 0);
+    for (int n = 1; n <= 9999; n++) Brain.SDcard.files.erase("pidlog" + std::to_string(n) + ".csv");
     Brain.SDcard.files["pidlog1.csv"] = "from an earlier run";
     Brain.SDcard.inserted = false;
     check("logToSDCard without a card -> false", !logToSDCard(true), 0, 0);
@@ -585,6 +594,24 @@ int main() {
     }
     check("11 s movement: every line is in the file", fabs(long_lines - long_time / 20) < 3 && all_fields
           && Brain.SDcard.files["pidlog2.csv"].size() > 40000, long_lines, long_time / 20);
+    // Absurd numbers make a line too long for the buffer's line: left out, the file stays readable
+    reset();
+    PID_forward(1e250, 0.3, 0.2, 100);
+    settle();
+    log = readLog(Brain.SDcard.files["pidlog2.csv"]);
+    all_fields = true;
+    for (const LogLine &l : log) all_fields = all_fields && l.fields == 13 && l.move <= 4;
+    check("huge target: its lines are left out, the file is fine", all_fields, log.size(), 0);
+    // The card is taken out during a long movement: logging stops, it doesn't keep trying
+    reset();
+    task card_task([]() -> int { vexDelay(1000); Brain.SDcard.inserted = false; return 0; });
+    int tries_before = Brain.SDcard.tries;
+    PID_forward(150, 0.3, 0.2, 12000, 20);
+    settle();
+    check("card taken out: one failed write, then logging stops", Brain.SDcard.tries - tries_before == 1,
+          Brain.SDcard.tries - tries_before, 1);
+    Brain.SDcard.inserted = true;
+    check("  logToSDCard(true) carries on in the same file", logToSDCard(true), 0, 0);
     logToSDCard(false);
     size_t log_size = Brain.SDcard.files["pidlog2.csv"].size();
     PID_turn(0, 0.5, 0.2);

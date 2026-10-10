@@ -115,12 +115,12 @@ struct screen { int lines = 0, clears = 0; void clearScreen(){ clears++; } void 
   bool pressing(){return false;} int xPosition(){return 0;} void clearLine(int){} };
 // The SD card keeps its files in memory. writes counts the writes, and fastest_write_speed is the
 // fastest a wheel was moving during any write (the library should only write when the robot stopped).
-struct sdcard { bool inserted = false; int writes = 0; double fastest_write_speed = 0; std::map<std::string, std::string> files;
+struct sdcard { bool inserted = false; int writes = 0, tries = 0; double fastest_write_speed = 0; std::map<std::string, std::string> files;
   bool isInserted(){ return inserted; }
   bool exists(const char *name){ return inserted && files.count(name) > 0; }
   int32_t size(const char *name){ return exists(name) ? (int32_t)files[name].size() : 0; }
   int32_t write(const char *name, uint8_t *buffer, int32_t len, bool append){
-    if (!inserted) return 0;
+    tries++; if (!inserted) return 0;
     writes++; fastest_write_speed = fmax(fastest_write_speed, fmax(fabs(sim::v[0]), fabs(sim::v[1])));
     std::string &file = files[name]; if (!append) file.clear();
     file.append((const char*)buffer, len); return len; }

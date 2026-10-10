@@ -45,7 +45,7 @@ int main() {
     //
     // To make a chart from the terminal: copy the lines from "time_ms,..." down,
     // paste them into a spreadsheet (one value per column), and insert a line chart.
-    // From the SD card: open the newest pidlog file, filter the "move" column to one movement
+    // From the SD card: open the newest pidlog file (the highest number), filter the "move" column to one movement
     // and make a line chart of error and output against time_ms.
     // The p, i and d columns show how much each part of the PID is pushing.
 }

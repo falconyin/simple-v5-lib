@@ -277,8 +277,9 @@ void PID_turn_to_point_chain(double x, double y, double exit_range,
 void logToTerminal(bool on);
 
 // Save the same data to a file on the Brain's SD card, to look at after a match or a skills run,
-// without a USB cable. Each program run makes a new file: pidlog1.csv, pidlog2.csv, ... (the
-// highest number is the newest). It is one table, one line every 20 ms:
+// without a USB cable. Each program run makes a new file, with the first number that isn't taken
+// yet: pidlog1.csv, pidlog2.csv, ... (so when you delete old logs, delete all of them, then the
+// highest number is always the newest). It is one table, one line every 20 ms:
 //   move,name,time_ms,target,error,speed,output,p,i,d,x,y,heading
 // move counts the movements (1, 2, 3, ...), x, y and heading are where the robot was (odometry).
 // Open it in a spreadsheet, filter on one move and make a line chart.
@@ -322,7 +323,7 @@ void tuneWithController();
 bool saveGainsToSDCard();
 
 // Puts the gains from pid_gains.txt into turnGains, swingGains, forwardGains and arcGains, and
-// shows them in the terminal. Without an SD card or file it returns false, and the gains stay
+// shows them in the terminal. Without an SD card or file (or if the file is over 2 KB) it returns false, and the gains stay
 // the ones from simpleV5LibConfig.h.
 // If you change a gain in simpleV5LibConfig.h after it was saved, the config wins for that gain:
 // the file remembers what the config said when it was saved, so it can tell.

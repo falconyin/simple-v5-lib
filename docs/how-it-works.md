@@ -298,6 +298,21 @@ starts fresh instead of counting as a movement.
 It is finished when the point is (almost) 0 inches ahead, the robot has stopped, and it faces
 the way it was aiming. The robot can't drive sideways, so a tiny sideways miss is accepted.
 
+### Chaining points into a path
+
+`PID_drive_to_point_chain(x, y, exit_range)` works like the other chained movements (section 6):
+its PID aims `exit_range` inches past the point, and it hands over when the point is less than
+`exit_range` ahead. Two extra rules make paths of points work:
+
+- **It must roughly face the point** (within `POINT_TURN_FIRST_ANGLE`) before it hands over.
+  Otherwise a point right beside the robot is "0 inches ahead" from the start, and the
+  movement would end before the robot even moved.
+- **It curves instead of turning first**: when a chained point follows another chained movement,
+  the robot is still driving. Stopping to turn would waste that speed, so it skips the turn and
+  lets the steering (and the `cos(aim error)` slow-down) curve it into the new direction. Only a
+  point more than 90° around still gets a turn first. The last, normal movement of a path does
+  turn first: driving straight into the point is what makes it stop exactly there.
+
 ---
 
 ## 9. Tuning, step by step

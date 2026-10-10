@@ -308,6 +308,70 @@ int main() {
     check("  counts inches, not the degrees of the first turn", hypot(sim::x, sim::y) >= 12, hypot(sim::x, sim::y), 12);
     waitUntilDone();
 
+    // ---------- Chained drive to point ----------
+    // A path with three 90 degree corners
+    reset(); t1 = sim::t_ms;
+    PID_drive_to_point(0, 24, 0.5, 0.2); PID_drive_to_point(24, 24, 0.5, 0.2);
+    PID_drive_to_point(24, 48, 0.5, 0.2); PID_drive_to_point(48, 48, 0.5, 0.2);
+    double normal_points = sim::t_ms - t1;
+    reset(); t1 = sim::t_ms;
+    PID_drive_to_point_chain(0, 24, 4);
+    double point_handover_speed = fabs(getMotorRate());
+    // From here until the last chained point, keep track of the slowest the robot drives
+    static bool watch_speed = true;
+    static double slowest = 1000;
+    task speed_watch([]() -> int {
+        while (watch_speed) { slowest = fmin(slowest, fabs(sim::v[0] + sim::v[1]) / 2); vexDelay(5); }
+        return 0;
+    });
+    PID_drive_to_point_chain(24, 24, 4);
+    PID_drive_to_point_chain(24, 48, 4);
+    watch_speed = false;
+    PID_drive_to_point(48, 48, 0.5, 0.2);
+    double chained_points = sim::t_ms - t1;
+    settle();
+    printf("   points: normal %.0f ms, chained %.0f ms, handover %.1f in/s, slowest at the corners %.1f in/s, end (%.2f, %.2f)\n",
+           normal_points, chained_points, point_handover_speed, slowest, sim::x, sim::y);
+    check("chained points are much faster than stopping at each", chained_points < normal_points * 0.8, chained_points, normal_points);
+    // (aiming past the point keeps it near full speed: about 55 in/s here, about 35 without)
+    check("  still moving fast at the handover", point_handover_speed > 45, point_handover_speed, 45);
+    check("  curves around the corners, never stops", slowest > 10, slowest, 10);
+    check("  ends at the last point (48, 48)", hypot(sim::x - 48, sim::y - 48) < 0.5, sim::x, sim::y);
+    reset();
+    PID_drive_to_point_chain(0, 24, 4);
+    PID_drive_to_point_chain(24, 48, 4);
+    PID_drive_to_point(48, 48, 0.5, 0.2); // the last, normal movement turns first and drives straight in
+    settle();
+    check("chain then a 45 degree corner: stops exactly at the point", hypot(sim::x - 48, sim::y - 48) < 0.5, sim::x, sim::y);
+    reset();
+    PID_drive_to_point_chain(0, 24, 4);
+    vexDelay(50);
+    double rolling_speed = fabs(getMotorRate());
+    vexDelay(CHAIN_STOP_AFTER_MS + 300);
+    check("point chain keeps driving after it hands over", rolling_speed > 40, rolling_speed, 40);
+    check("  with nothing after it, the robot stops", fabs(getMotorRate()) < 1 && fabs(sim::y - 24) < 6, getMotorRate(), sim::y);
+    reset();
+    PID_drive_to_point_chain(4, 0, 1); // close beside the robot (no turning first): drive there, don't end at once
+    vexDelay(CHAIN_STOP_AFTER_MS + 300);
+    check("point close beside the robot isn't skipped by a chain", sim::x > 2, sim::x, 2);
+    reset();
+    PID_drive_to_point_chain(0, -24, 4, FORWARD_TIMEOUT_MS, 100, true);
+    double backed_up = sim::y;
+    PID_drive_to_point(0, -48, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);
+    check("backwards point chain hands over near (0, -24)", backed_up < -18 && backed_up > -24, backed_up, -20);
+    check("  then -> (0, -48), not turned around", hypot(sim::x, sim::y + 48) < 1 && fabs(getInertial()) < 5, sim::y, getInertial());
+    reset();
+    PID_drive_to_point_chain(0, 24, 4);
+    PID_drive_to_point(0, -12, 0.5, 0.2); // behind the robot: too far around to curve, turns first
+    check("chain then a point behind: turns around and gets there", hypot(sim::x, sim::y + 12) < 1, sim::x, sim::y);
+    reset();
+    PID_drive_to_point_chain(0, 24, 4);
+    // The robot is still rolling, so it aims at the point from where it is when the turn starts
+    double aim_to = atan2(24 - getX(), 48 - getY()) * 180 / M_PI;
+    PID_turn_to_point_chain(24, 48, 10);
+    PID_forward(10, 0.3, 0.2);
+    check("turn to point chain: forward keeps facing the point", fabs(getInertial() - aim_to) < 1.5, getInertial(), aim_to);
+
     if (TRACKING_SIDEWAYS_PORT >= 0) {
         reset();
         PID_forward_async(48, 0.3, 0.2);

@@ -487,6 +487,11 @@ static void driveForward(const MotionRequest &request) {
 // the robot has even turned towards it.
 const double POINT_FACING_TOLERANCE = 5;
 
+// A chained drive to a point, started while the robot is still moving from a chained movement,
+// curves towards its point instead of turning first, unless the point is more than this many
+// degrees away from where the robot faces
+const double POINT_CURVE_ANGLE = 90;
+
 // Drive to a field point, using odometry. The robot keeps aiming at the point while it drives,
 // so it gets there even if it gets bumped or one side is weaker.
 static void driveToPoint(const MotionRequest &request) {
@@ -503,9 +508,15 @@ static void driveToPoint(const MotionRequest &request) {
     double heading = getInertial();
     double aim = heading + wrap180(headingTo(tx, ty) + flip - heading); // the heading to drive along
     double first_error = distanceAhead(tx, ty, heading);
-    pid.reset(first_error);
+    double travel = request.backwards ? -1 : 1; // the way the robot drives: +1 forward, -1 backwards
+
+    // Chaining: aim a bit past the point, so the robot is still moving when it gets there
+    bool chaining = request.exit_range > 0;
+    double pid_offset = chaining ? travel * request.exit_range : 0;
+    pid.reset(first_error + pid_offset);
     telemetryStart("PID_drive_to_point", hypot(tx - start_x, ty - start_y), first_error, request.timeout_ms);
 
+    bool chained_exit = false;
     bool timed_out = false;
     OvershootCheck overshoot;
     while (!cancel_requested) {
@@ -521,7 +532,7 @@ static void driveToPoint(const MotionRequest &request) {
         double motor_rate = getMotorRate();
         motion_progress = hypot(getX() - start_x, getY() - start_y);
         // Driving forward, a negative "ahead" means the robot drove past the point; backwards, a positive one
-        overshoot.update(ahead, request.backwards ? -1 : 1);
+        overshoot.update(ahead, travel);
 
         // Keep aiming at the point, until we are close
         if (distance > POINT_AIM_DISTANCE) {
@@ -529,15 +540,25 @@ static void driveToPoint(const MotionRequest &request) {
         }
         double aim_error = aim - heading;
 
-        // Finished: nothing left to drive, stopped, and facing the way we aim. (The robot can't drive
-        // sideways, so a little sideways miss is fine; the straight-line distance could never settle.)
-        bool inside = fabs(ahead) < request.error_tolerance && fabs(motor_rate) < request.speed_tolerance
-                      && fabs(aim_error) < POINT_FACING_TOLERANCE;
-        if (settle.update(inside, time)) {
-            break;
+        if (chaining) {
+            // Close enough (or already past it), and roughly facing the way we aim: hand over to the
+            // next movement without stopping. (Without the facing check, a point right beside the
+            // robot would be "0 inches ahead" and the movement would end before it even started.)
+            if (ahead * travel < request.exit_range && fabs(aim_error) < POINT_TURN_FIRST_ANGLE) {
+                chained_exit = true;
+                break;
+            }
+        } else {
+            // Finished: nothing left to drive, stopped, and facing the way we aim. (The robot can't drive
+            // sideways, so a little sideways miss is fine; the straight-line distance could never settle.)
+            bool inside = fabs(ahead) < request.error_tolerance && fabs(motor_rate) < request.speed_tolerance
+                          && fabs(aim_error) < POINT_FACING_TOLERANCE;
+            if (settle.update(inside, time)) {
+                break;
+            }
         }
 
-        double power = cap(pid.compute(ahead, motor_rate), request.max_speed);
+        double power = cap(pid.compute(ahead + pid_offset, motor_rate), request.max_speed);
         if (!continuing) {
             power = startRamp(power, time); // no ramp if we are already moving
         }
@@ -550,7 +571,7 @@ static void driveToPoint(const MotionRequest &request) {
         vexDelay(delay);
     }
     saveResult(start_time, distanceAhead(tx, ty, getInertial()), overshoot.most, timed_out);
-    endMovement(false, aim);
+    endMovement(chained_exit, aim);
     chain_was_forward = false;
 }
 
@@ -563,7 +584,11 @@ static void runMotion(const MotionRequest &request) {
         double flip = request.backwards ? 180 : 0;
         double turn_needed = wrap180(headingTo(request.target_x, request.target_y) + flip - heading);
         double distance = hypot(request.target_x - getX(), request.target_y - getY());
-        if (fabs(turn_needed) > POINT_TURN_FIRST_ANGLE && distance > POINT_AIM_DISTANCE) {
+        // In the middle of a chain the robot is still driving: curving into the new direction is much
+        // faster than turning on the spot (driveToPoint steers and slows down as needed). The last,
+        // normal movement of a chain does turn first: it drives straight in, so it stops exactly.
+        bool curve = last_was_chain && request.exit_range > 0 && fabs(turn_needed) <= POINT_CURVE_ANGLE;
+        if (fabs(turn_needed) > POINT_TURN_FIRST_ANGLE && distance > POINT_AIM_DISTANCE && !curve) {
             // Facing far away from the point: turn towards it first. The turn is chained (doesn't
             // stop at the end), the drive keeps correcting the aim anyway.
             MotionRequest turn = makeRequest(MOTION_TURN, heading + turn_needed, 0, 0, request.timeout_ms, request.max_speed);
@@ -790,6 +815,23 @@ void PID_turn_chain(double target, double exit_range, double timeout_ms, double 
 void PID_swing_chain(double target, driveSide moving_side, double exit_range, double timeout_ms, double max_speed) {
     startMotion(makeChainRequest(swingType(moving_side), target, exit_range, timeout_ms, max_speed));
     waitUntilDone();
+}
+
+void PID_drive_to_point_chain(double x, double y, double exit_range, double timeout_ms, double max_speed, bool backwards) {
+    startOdometry();
+    MotionRequest request = makeChainRequest(MOTION_TO_POINT, 0, exit_range, timeout_ms, max_speed);
+    request.target_x = x;
+    request.target_y = y;
+    request.backwards = backwards;
+    startMotion(request);
+    waitUntilDone();
+}
+
+void PID_turn_to_point_chain(double x, double y, double exit_range, double timeout_ms, double max_speed, bool backwards) {
+    startOdometry();
+    waitUntilDone(); // aim from where the robot is after the previous movement ends
+    double flip = backwards ? 180 : 0;
+    PID_turn_chain(shortestTarget(headingTo(x, y) + flip), exit_range, timeout_ms, max_speed);
 }
 
 void PID_arc_chain(double target, double radius, double exit_range, double timeout_ms, double max_speed) {

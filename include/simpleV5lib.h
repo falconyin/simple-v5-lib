@@ -79,6 +79,7 @@ void calibrateInertial();
 
 // Tell the robot which way it is facing right now, in degrees.
 // Useful at the start of an autonomous if the robot doesn't start facing 0.
+// Fine between chained movements too: the next one keeps aiming the same real direction.
 void setHeading(double degrees);
 
 // ============================================================================
@@ -209,10 +210,11 @@ void PID_drive_to_point_async(double x, double y, double error_tolerance, double
 void waitUntilDone();
 
 // Wait until the current movement has gone this far from where it started
-// (inches for PID_forward and PID_drive_to_point, degrees for turns), or has finished
+// (inches for PID_forward and PID_drive_to_point, degrees for turns, swings and arcs), or has finished
 void waitUntilTraveled(double amount);
 
-// true while a movement is running
+// true while a movement is running. A chained movement counts as finished when it hands over,
+// even though the robot is still moving then.
 bool isMoving();
 
 // How a movement went

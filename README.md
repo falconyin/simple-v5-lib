@@ -73,7 +73,7 @@ PID_forward(24, 0.3, 0.2);  // stops exactly at the end
 
 // Do something while driving
 PID_forward_async(48, 0.3, 0.2);   // start driving, and keep going in your code right away
-waitUntilTraveled(24);             // wait until 24 inches are done (degrees for turns)
+waitUntilTraveled(24);             // wait until 24 inches are done (degrees for turns, swings, arcs)
 intake.spin(forward);              // your own motor
 waitUntilDone();                   // wait until the drive is finished
 cancelMovement();                  // stop the current movement now

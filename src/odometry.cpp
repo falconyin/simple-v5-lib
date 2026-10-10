@@ -100,8 +100,12 @@ void startOdometry() {
     new task(odometryLoop);
 }
 
+// In simpleV5lib.cpp: keeps a chained movement's heading in step when the heading jumps
+void shiftChainHeading(double degrees);
+
 void setHeading(double degrees) {
     manual_changes++; // the heading jumps now: don't count that as the robot turning
+    shiftChainHeading(degrees - getInertial());
     Inertial.setRotation(degrees, rotationUnits::deg);
     // heading() only goes from 0 to 360, so wrap the value into that range
     double heading = fmod(degrees, 360);

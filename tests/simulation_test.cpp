@@ -374,6 +374,67 @@ int main() {
     PID_forward(10, 0.3, 0.2);
     check("turn to point chain: forward keeps facing the point", fabs(getInertial() - aim_to) < 1.5, getInertial(), aim_to);
 
+    reset();
+    PID_swing_chain(90, LEFT_SIDE, 10);
+    double swing_handover = getInertial(), swing_rate = sim::rate;
+    PID_forward(12, 0.3, 0.2);
+    check("swing chain hands over 10 degrees early, still turning", swing_handover > 78 && swing_handover < 86 && swing_rate > 30, swing_handover, swing_rate);
+    check("  forward after it keeps the swing's target 90", fabs(getInertial() - 90) < 1.5, getInertial(), 90);
+
+    // The other _async turns: return right away, then do the same as the waiting ones
+    reset();
+    setHeading(350);
+    double t_call = sim::t_ms;
+    PID_turn_shortest_async(10, 0.5, 0.2);
+    bool returned_moving = isMoving() && sim::t_ms == t_call;
+    waitUntilDone();
+    check("turn shortest async: returns right away, 350 -> 370", returned_moving && fabs(getInertial() - 370) < 1.5, returned_moving, getInertial());
+    reset();
+    t_call = sim::t_ms;
+    PID_turn_to_point_async(24, 24, 0.5, 0.2);
+    returned_moving = isMoving() && sim::t_ms == t_call;
+    waitUntilDone();
+    check("turn to point async: returns right away, faces 45", returned_moving && fabs(getInertial() - 45) < 1.5, returned_moving, getInertial());
+
+    // The gentle start is skipped only while the robot is still driving, not after a turn in place
+    reset();
+    PID_turn_chain(90, 10);
+    PID_forward_async(24, 0.3, 0.2);
+    vexDelay(50);
+    double power_after_turn = (sim::cmd[0] + sim::cmd[1]) / 2;
+    waitUntilDone();
+    check("forward after a chained turn still starts gently", power_after_turn < 50, power_after_turn, 50);
+    reset();
+    PID_drive_to_point_async(48, 0, 0.5, 0.2); // turns 90 degrees first, chained into the drive
+    while (getInertial() < 85) vexDelay(5);    // that turn hands over 5 degrees early
+    vexDelay(50);
+    double power_after_point_turn = (sim::cmd[0] + sim::cmd[1]) / 2;
+    waitUntilDone();
+    check("  so does a drive to point after its turn", power_after_point_turn < 50, power_after_point_turn, 50);
+    reset();
+    PID_forward_chain(24, 3);
+    double handover_speed = getMotorRate();
+    PID_forward_async(24, 0.3, 0.2);
+    vexDelay(50);
+    double speed_after_handover = getMotorRate();
+    waitUntilDone();
+    check("forward after a chained forward doesn't slow down", speed_after_handover >= handover_speed, speed_after_handover, handover_speed);
+
+    // setHeading between chained movements: the next one keeps aiming the same real direction.
+    // The robot is still turning at the hand-over, so expect the turn's target in the new numbers.
+    reset();
+    PID_turn_chain(90, 10);
+    double jump = 0 - getInertial();
+    setHeading(0);
+    PID_forward(24, 0.3, 0.2);
+    check("setHeading after a chained turn: forward keeps its direction", fabs(getInertial() - (90 + jump)) < 1.5, getInertial(), 90 + jump);
+    reset();
+    PID_turn_chain(90, 10);
+    jump = 0 - getInertial();
+    setHeading(0);
+    PID_turn_relative(90, 0.5, 0.2);
+    check("  relative turn counts from the turn's target", fabs(getInertial() - (180 + jump)) < 1.5, getInertial(), 180 + jump);
+
     if (TRACKING_SIDEWAYS_PORT >= 0) {
         reset();
         PID_forward_async(48, 0.3, 0.2);
@@ -425,6 +486,34 @@ int main() {
     PID_drive_to_point(0, -24, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);
     r = lastMovementResult();
     check("backwards drive to point: overshoot is small, not 24", r.overshoot < 1 && fabs(sim::y + 24) < 1, r.overshoot, sim::y);
+
+    // A drive to point that stops during its turn-first still reports inches left to drive
+    auto pointAhead = [](double x, double y) {
+        double h = getInertial() * M_PI / 180;
+        return (x - getX()) * sin(h) + (y - getY()) * cos(h);
+    };
+    reset();
+    PID_drive_to_point_async(48, 0, 0.5, 0.2); // turns 90 degrees first
+    vexDelay(100);
+    cancelMovement();
+    r = lastMovementResult();
+    // (the robot still turns a little while it brakes, so allow some inches; in degrees it would be ~65)
+    check("drive to point cancelled while turning: error in inches", fabs(r.error - pointAhead(48, 0)) < 4 && r.overshoot == 0 && !r.timed_out, r.error, pointAhead(48, 0));
+    reset();
+    forwardGains.kd = 0;
+    PID_forward(24, 0.01, 0.01, 1500); // no braking, impossible tolerances: overshoots and times out
+    forwardGains = saved_forward;
+    MovementResult old_result = lastMovementResult();
+    reset();
+    PID_drive_to_point_async(0, 48, 0.5, 0.2); // straight ahead: no turn first
+    cancelMovement();                          // before the background task even starts it
+    r = lastMovementResult();
+    check("  cancelled before it started: not the old result", old_result.timed_out && old_result.overshoot > 0.5
+          && fabs(r.error - 48) < 0.5 && !r.timed_out && r.overshoot == 0, r.error, old_result.overshoot);
+    reset();
+    PID_drive_to_point(48, 0, 0.5, 0.2, 200); // 200 ms is too short for its 90 degree turn
+    r = lastMovementResult();
+    check("drive to point timing out while turning", r.timed_out && r.time_ms < 230 && fabs(r.error - pointAhead(48, 0)) < 1.5, r.time_ms, r.error);
 
     // The tuner's "every other try goes back" must bring the robot back to its spot
     reset();

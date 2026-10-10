@@ -10,6 +10,8 @@
 // - The inertial sensor reports the heading worked out from the two wheel speeds.
 // - Rotation sensors act as tracking wheels: the test tells the simulator which ports they are on
 //   and where they sit on the robot. bump() shoves the robot sideways, like another robot would.
+// - Distance sensors measure to the field walls (a square, 144 inches wide, centered on (0, 0)),
+//   or to an obstacle the test puts in front of them.
 // - Tasks are real threads, but only one runs at a time and they only switch inside vexDelay /
 //   wait, like on the V5 brain. Time is simulated, so the tests run much faster than real time.
 #define _USE_MATH_DEFINES // M_PI: the VEX SDK has it, but MinGW only declares it with this
@@ -73,6 +75,27 @@ inline void bump(double right) {
     y -= right * sin(heading * M_PI / 180);
     side_wheel += right;
 }
+// The field walls (inches), for the distance sensors
+inline double wall_left = -72, wall_right = 72, wall_back = -72, wall_front = 72;
+// Distance sensors: where the sensor on each port sits on the robot (like DISTANCE_..._AHEAD and
+// _RIGHT in the config) and which way it looks (degrees clockwise from the robot's front)
+struct DistanceMount { bool on = false; double ahead = 0, right = 0, looks = 0; };
+inline DistanceMount distance_mount[21];
+inline double obstacle[21] = {}; // > 0: something this many inches in front of that sensor (another robot)
+// What the distance sensor on this port sees, in inches, or -1 if nothing within its range
+inline double distanceSeen(int port) {
+    const DistanceMount &m = distance_mount[port];
+    if (!m.on) return -1;
+    double h = heading * M_PI / 180, b = (heading + m.looks) * M_PI / 180;
+    double sx = x + m.ahead * sin(h) + m.right * cos(h), sy = y + m.ahead * cos(h) - m.right * sin(h);
+    double dx = sin(b), dy = cos(b), seen = 1e9;
+    if (dx > 1e-9) seen = fmin(seen, (wall_right - sx) / dx);
+    if (dx < -1e-9) seen = fmin(seen, (wall_left - sx) / dx);
+    if (dy > 1e-9) seen = fmin(seen, (wall_front - sy) / dy);
+    if (dy < -1e-9) seen = fmin(seen, (wall_back - sy) / dy);
+    if (obstacle[port] > 0) seen = fmin(seen, obstacle[port]);
+    return seen <= 78 ? seen : -1; // the V5 distance sensor sees up to 2 m
+}
 inline void step() {               // 1 ms
     for (int s = 0; s < 2; s++) {
         double target = mode[s] == 0 ? cmd[s] / 100 * MAXV * gain[s] : 0;
@@ -95,7 +118,7 @@ inline void step() {               // 1 ms
 }
 }
 namespace vex {
-enum { PORT1=0,PORT2,PORT3,PORT4,PORT5,PORT6,PORT7,PORT8,PORT9,PORT10 };
+enum { PORT1=0,PORT2,PORT3,PORT4,PORT5,PORT6,PORT7,PORT8,PORT9,PORT10,PORT11,PORT12,PORT13,PORT14,PORT15,PORT16,PORT17,PORT18,PORT19,PORT20,PORT21 };
 enum gearSetting { ratio36_1, ratio18_1, ratio6_1 };
 enum class rotationUnits { deg, rev };
 enum class temperatureUnits { celsius, fahrenheit };
@@ -157,6 +180,11 @@ struct rotation { int port; bool reversed;
   double position(rotationUnits){
     double inches = port == sim::fwd_wheel_port ? sim::fwd_wheel : port == sim::side_wheel_port ? sim::side_wheel : 0;
     return inches / (M_PI * sim::track_wheel_diam) * (reversed ? -1 : 1); } };
+enum class distanceUnits { mm, in, cm };
+struct distance { int port; distance(int p) : port(p) {} bool installed(){ return sim::distance_mount[port].on && !sim::unplugged[port]; }
+  bool isObjectDetected(){ return sim::distanceSeen(port) >= 0; }
+  double objectDistance(distanceUnits u){ double in = sim::distanceSeen(port); if (in < 0) in = 9999 / 25.4;
+    return u == distanceUnits::in ? in : u == distanceUnits::cm ? in * 2.54 : in * 25.4; } };
 struct inertial { int port; inertial(int p) : port(p) {} bool installed(){ return !sim::unplugged[port]; }
   double rotation(rotationUnits){ return sim::heading; }
   double gyroRate(axisType, rateUnits){ return sim::gyro_rate_flipped ? sim::rate : -sim::rate; } // counter-clockwise positive, like the real IMU (assumed)

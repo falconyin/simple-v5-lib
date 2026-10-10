@@ -123,6 +123,33 @@ const bool TRACKING_SIDEWAYS_REVERSED = false;
 const double TRACKING_SIDEWAYS_OFFSET = 0;     // inches in front of the center (behind = negative)
 const double TRACKING_WHEEL_DIAMETER_INCH = 2.75;
 
+// Distance sensors, to correct the position from a wall (resetXFromWall, resetYFromWall).
+// One for each side of the robot it can look out of; set a port to -1 if there's no sensor there.
+// AHEAD and RIGHT say where the front of the sensor is, measured from the robot's center
+// (the same center as the tracking wheel offsets).
+const int DISTANCE_FRONT_PORT = -1;   // looks forward
+const double DISTANCE_FRONT_AHEAD = 0; // inches in front of the center (behind = negative)
+const double DISTANCE_FRONT_RIGHT = 0; // inches to the right of the center (left = negative)
+const int DISTANCE_BACK_PORT = -1;    // looks backward
+const double DISTANCE_BACK_AHEAD = 0;
+const double DISTANCE_BACK_RIGHT = 0;
+const int DISTANCE_LEFT_PORT = -1;    // looks to the left
+const double DISTANCE_LEFT_AHEAD = 0;
+const double DISTANCE_LEFT_RIGHT = 0;
+const int DISTANCE_RIGHT_PORT = -1;   // looks to the right
+const double DISTANCE_RIGHT_AHEAD = 0;
+const double DISTANCE_RIGHT_RIGHT = 0;
+// The sensor must look at the wall within this many degrees of straight on. More at an angle,
+// and the beam can hit something else, so the reset is skipped.
+const double DISTANCE_RESET_MAX_ANGLE = 20;
+// If the wall says the position is more than this many inches off, the sensor most likely saw
+// another robot or a game object instead of the wall, so the reset is skipped.
+// (After a big crash you can allow more for one reset, see resetXFromWall.)
+const double DISTANCE_RESET_MAX_CHANGE = 6;
+// The sensor's reading is a little behind, so the robot must be (almost) still: no wheel faster
+// than this, in inches/s, or the reset is skipped.
+const double DISTANCE_RESET_MAX_SPEED = 3;
+
 // Distance between the middle of the left wheels and the middle of the right wheels, in inches.
 // Arcs use it to work out how much faster the outside wheels must go. Measure your robot!
 const double TRACK_WIDTH_INCH = 12.0;

@@ -123,6 +123,119 @@ void setPose(double x, double y, double heading) {
     manual_changes++;
 }
 
+void setX(double x) {
+    startOdometry();
+    // Only x changes: the wheel and heading readings go on as before, so no fresh start is needed
+    pose_x = x;
+}
+
+void setY(double y) {
+    startOdometry();
+    pose_y = y;
+}
+
+// The V5 distance sensor can't measure closer than 20 mm
+const double DISTANCE_SENSOR_MIN_INCH = 0.8;
+
+// How fast one side of the drivetrain is moving, in inches/s
+static double wheelSpeed(motor &m) {
+    return m.velocity(velocityUnits::dps) / 360 * WHEEL_CIRCUMFERENCE_INCH * MOTOR_TO_WHEEL_GEAR_RATIO;
+}
+
+// Shared by resetXFromWall and resetYFromWall. x_wall is true for a wall at x = wall,
+// false for a wall at y = wall.
+static bool resetFromWall(distanceSensor which, bool x_wall, double wall, double max_change) {
+    const char* axis = x_wall ? "x" : "y";
+    if (which < FRONT_SENSOR || which > RIGHT_SENSOR) {
+        printf("reset %s from wall: unknown sensor %d\n", axis, (int)which);
+        return false;
+    }
+    // Where each sensor sits on the robot (from simpleV5LibConfig.h) and which way it looks,
+    // in degrees clockwise from the robot's front
+    struct Mount { const char* name; int port; double ahead; double right; double looks; };
+    const Mount mounts[] = {
+        {"front", DISTANCE_FRONT_PORT, DISTANCE_FRONT_AHEAD, DISTANCE_FRONT_RIGHT, 0},
+        {"back", DISTANCE_BACK_PORT, DISTANCE_BACK_AHEAD, DISTANCE_BACK_RIGHT, 180},
+        {"left", DISTANCE_LEFT_PORT, DISTANCE_LEFT_AHEAD, DISTANCE_LEFT_RIGHT, -90},
+        {"right", DISTANCE_RIGHT_PORT, DISTANCE_RIGHT_AHEAD, DISTANCE_RIGHT_RIGHT, 90},
+    };
+    const Mount &mount = mounts[which];
+
+    if (mount.port < 0) {
+        printf("reset %s from wall: no %s distance sensor in simpleV5LibConfig.h\n", axis, mount.name);
+        return false;
+    }
+    // The sensor's reading is a little behind: while the robot moves, it belongs to where the
+    // robot was a moment ago, not to where odometry says it is now
+    if (fmax(fabs(wheelSpeed(leftFront)), fabs(wheelSpeed(rightFront))) > DISTANCE_RESET_MAX_SPEED) {
+        printf("reset %s from wall: the robot is still moving\n", axis);
+        return false;
+    }
+    distance sensor(mount.port);
+    if (!sensor.installed()) {
+        printf("reset %s from wall: no distance sensor on port %d\n", axis, mount.port + 1);
+        return false;
+    }
+    if (!sensor.isObjectDetected()) {
+        printf("reset %s from wall: the %s sensor doesn't see anything\n", axis, mount.name);
+        return false;
+    }
+    double reading = sensor.objectDistance(distanceUnits::in);
+    if (reading < DISTANCE_SENSOR_MIN_INCH) {
+        printf("reset %s from wall: the %s sensor is too close to the wall to measure\n", axis, mount.name);
+        return false;
+    }
+
+    // Which way the sensor looks on the field. beam_along: how much of each inch along the beam
+    // goes in the x (or y) direction (heading 0 looks along +y, clockwise is positive)
+    double heading = getInertial() * M_PI / 180;
+    double beam = heading + mount.looks * M_PI / 180;
+    double beam_along = x_wall ? sin(beam) : cos(beam);
+
+    // A wall at x = ... is straight on when the beam goes only along x. At an angle, part of
+    // every inch goes sideways, and fabs(beam_along) is the cos of the angle from straight on.
+    if (fabs(beam_along) < cos(DISTANCE_RESET_MAX_ANGLE * M_PI / 180)) {
+        printf("reset %s from wall: the %s sensor doesn't look at the wall straight enough\n", axis, mount.name);
+        return false;
+    }
+
+    // The wall must be on the side the sensor looks at (bigger x when the beam goes towards
+    // bigger x). If not, it's the wrong sensor or the wrong wall: the sensor sees a different one.
+    double old_value = x_wall ? getX() : getY();
+    if ((wall - old_value) * beam_along <= 0) {
+        printf("reset %s from wall: the wall at %s = %.1f is behind the %s sensor\n", axis, axis, wall, mount.name);
+        return false;
+    }
+
+    // Where the sensor is, measured from the robot's center, on the field
+    double sensor_x = mount.ahead * sin(heading) + mount.right * cos(heading);
+    double sensor_y = mount.ahead * cos(heading) - mount.right * sin(heading);
+
+    // Walk back from the wall: along the beam to the sensor, then from the sensor to the center.
+    // (beam_along is negative when the beam looks towards smaller x or y, so this works for
+    // the walls on both sides.)
+    double new_value = wall - reading * beam_along - (x_wall ? sensor_x : sensor_y);
+    if (fabs(new_value - old_value) > max_change) {
+        printf("reset %s from wall: the %s sensor says %s = %.1f, but odometry says %.1f. Not the wall?\n",
+               axis, mount.name, axis, new_value, old_value);
+        return false;
+    }
+    if (x_wall) {
+        setX(new_value);
+    } else {
+        setY(new_value);
+    }
+    return true;
+}
+
+bool resetXFromWall(distanceSensor sensor, double wall_x, double max_change) {
+    return resetFromWall(sensor, true, wall_x, max_change);
+}
+
+bool resetYFromWall(distanceSensor sensor, double wall_y, double max_change) {
+    return resetFromWall(sensor, false, wall_y, max_change);
+}
+
 double getForwardTrackingWheel() {
     return (forward_wheel != nullptr) ? wheelInches(forward_wheel) : 0;
 }

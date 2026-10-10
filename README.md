@@ -20,7 +20,7 @@ This library uses simple language and easy logic. It helps you get the hang of i
 ## What's Included
 
 * **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest`, `PID_swing` and `PID_arc` (drive along a curve), with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight.
-* **Odometry:** the robot keeps track of where it is on the field (x, y in inches), and `PID_drive_to_point` / `PID_turn_to_point` drive to field points. Works with just the drive motors and inertial sensor; tracking wheels are optional.
+* **Odometry:** the robot keeps track of where it is on the field (x, y in inches), and `PID_drive_to_point` / `PID_turn_to_point` drive to field points. Works with just the drive motors and inertial sensor; tracking wheels are optional. Correct the position against a wall, by touching it (`setX` / `setY`) or with a distance sensor (`resetXFromWall` / `resetYFromWall`).
 * **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes. `PID_drive_to_point_chain` turns a list of field points into one smooth path.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
 * **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal.
@@ -64,6 +64,8 @@ PID_drive_to_point(24, 24, 0.5, 0.2);               // turn towards (24, 24) and
 PID_drive_to_point(0, 0, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);  // back up to (0, 0)
 PID_turn_to_point(0, 48, 0.5, 0.2);                 // face (0, 48)
 getX(); getY();                                     // where the robot is now
+setY(70 - 7);                                       // after bumping into the wall at y = 70: fix only y
+resetXFromWall(RIGHT_SENSOR, 70);                   // stopped, a distance sensor sees the wall at x = 70: fix x
 
 // Chained: don't stop between movements (much faster). End with a normal movement.
 PID_forward_chain(24, 3);   // move on to the next movement 3 inches before the target
@@ -111,7 +113,7 @@ cancelMovement();                       // at the start of usercontrol(), in cas
 * Turn targets are in degrees, clockwise is positive. You should know this, but 360 degrees make a full circle.
 * Speeds and powers are percentages, from -100 to 100.
 * Arcs need `TRACK_WIDTH_INCH` in simpleV5LibConfig.h: the distance between the middle of your left and right wheels.
-* Field positions (odometry) are in inches: x to the right, y forward, measured from where you called `setPose`. If you have tracking wheels, set their ports and positions in simpleV5LibConfig.h.
+* Field positions (odometry) are in inches: x to the right, y forward, measured from where you called `setPose`. If you have tracking wheels, set their ports and positions in simpleV5LibConfig.h, and the same for distance sensors.
 
 ## Testing
 

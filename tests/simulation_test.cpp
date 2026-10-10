@@ -289,6 +289,10 @@ int main() {
     check("drive to point (12, 48) with a weak right side", hypot(sim::x - 12, sim::y - 48) < 1, sim::x, sim::y);
 
     reset();
+    PID_drive_to_point(3, 0, 1, 0.2); settle(); // close, and straight to the side: must turn, then drive
+    check("drive to a close point beside the robot (3, 0)", hypot(sim::x - 3, sim::y) < 1, sim::x, sim::y);
+
+    reset();
     PID_drive_to_point(0, 24, 0.5, 0.2); PID_drive_to_point(24, 24, 0.5, 0.2);
     PID_drive_to_point(24, 0, 0.5, 0.2); PID_drive_to_point(0, 0, 0.5, 0.2); settle();
     check("drive a 24 inch square back to the start", hypot(sim::x, sim::y) < 1.5, sim::x, sim::y);

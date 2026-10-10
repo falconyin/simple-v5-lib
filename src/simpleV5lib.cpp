@@ -436,6 +436,11 @@ static void driveForward(const MotionRequest &request) {
     chain_forward_end = start_position + target;
 }
 
+// While driving to a point, the robot only counts as finished when it faces the way it is aiming
+// within this many degrees. Otherwise a point right beside the robot is "0 inches ahead" before
+// the robot has even turned towards it.
+const double POINT_FACING_TOLERANCE = 5;
+
 // Drive to a field point, using odometry. The robot keeps aiming at the point while it drives,
 // so it gets there even if it gets bumped or one side is weaker.
 static void driveToPoint(const MotionRequest &request) {
@@ -466,16 +471,20 @@ static void driveToPoint(const MotionRequest &request) {
         double distance = hypot(tx - getX(), ty - getY());
         double motor_rate = getMotorRate();
         motion_progress = hypot(getX() - start_x, getY() - start_y);
-        bool inside = fabs(ahead) < request.error_tolerance && fabs(motor_rate) < request.speed_tolerance;
-        if (settle.update(inside, time)) {
-            break;
-        }
 
         // Keep aiming at the point, until we are close
         if (distance > POINT_AIM_DISTANCE) {
             aim = heading + wrap180(headingTo(tx, ty) + flip - heading);
         }
         double aim_error = aim - heading;
+
+        // Finished: nothing left to drive, stopped, and facing the way we aim. (The robot can't drive
+        // sideways, so a little sideways miss is fine; the straight-line distance could never settle.)
+        bool inside = fabs(ahead) < request.error_tolerance && fabs(motor_rate) < request.speed_tolerance
+                      && fabs(aim_error) < POINT_FACING_TOLERANCE;
+        if (settle.update(inside, time)) {
+            break;
+        }
 
         double power = cap(pid.compute(ahead, motor_rate), request.max_speed);
         if (!continuing) {

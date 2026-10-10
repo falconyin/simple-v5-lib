@@ -11,11 +11,13 @@
 
 static std::atomic<double> pose_x(0);
 static std::atomic<double> pose_y(0);
-// Set when the heading or position is changed by hand: the next reading is a new starting
-// point instead of a movement (otherwise a heading jump would look like the robot turning)
-static std::atomic<bool> start_over(true);
+// Goes up by one every time the heading or position is changed by hand (setHeading, setPose).
+// When the odometry loop sees it change, its next reading is a new starting point instead of a
+// movement, otherwise a heading jump would look like the robot turning. A counter instead of a
+// yes/no flag, so a change can never get lost, however the two tasks happen to take turns.
+static std::atomic<unsigned> manual_changes(0);
 
-static task* odometry_task = nullptr;
+static std::atomic<bool> odometry_started(false);
 static rotation* forward_wheel = nullptr;  // tracking wheels, nullptr = not used
 static rotation* sideways_wheel = nullptr;
 
@@ -28,14 +30,22 @@ static int odometryLoop() {
     double last_forward = 0;
     double last_sideways = 0;
     double last_heading = 0;
+    bool have_start = false;
+    unsigned changes_seen = 0;
 
     while (true) {
+        unsigned changes_before = manual_changes;
         double forward = (forward_wheel != nullptr) ? wheelInches(forward_wheel) : getPosition();
         double sideways = (sideways_wheel != nullptr) ? wheelInches(sideways_wheel) : 0;
         double heading = getInertial();
+        unsigned changes_after = manual_changes;
 
-        if (start_over) {
-            start_over = false;
+        if (!have_start || changes_before != changes_seen || changes_after != changes_before) {
+            // First reading, or the pose was changed by hand: start counting from here.
+            // (If it changed while we were reading, changes_seen stays behind and the next
+            // reading starts over again, with values that are surely after the change.)
+            have_start = true;
+            changes_seen = changes_before;
         } else {
             double turned = (heading - last_heading) * M_PI / 180; // radians, clockwise is positive
             double moved_forward = forward - last_forward;
@@ -75,7 +85,9 @@ static int odometryLoop() {
 }
 
 void startOdometry() {
-    if (odometry_task != nullptr) {
+    // exchange sets it to true and tells us what it was: only the very first call gets "false",
+    // so two tasks calling this at the same time can never start two odometry loops
+    if (odometry_started.exchange(true)) {
         return; // already running
     }
     if (TRACKING_FORWARD_PORT >= 0) {
@@ -84,13 +96,12 @@ void startOdometry() {
     if (TRACKING_SIDEWAYS_PORT >= 0) {
         sideways_wheel = new rotation(TRACKING_SIDEWAYS_PORT, TRACKING_SIDEWAYS_REVERSED);
     }
-    start_over = true;
     // Made with "new" so the task object is never destroyed and the task keeps running
-    odometry_task = new task(odometryLoop);
+    new task(odometryLoop);
 }
 
 void setHeading(double degrees) {
-    start_over = true; // the heading jumps now: don't count that as the robot turning
+    manual_changes++; // the heading jumps now: don't count that as the robot turning
     Inertial.setRotation(degrees, rotationUnits::deg);
     // heading() only goes from 0 to 360, so wrap the value into that range
     double heading = fmod(degrees, 360);
@@ -105,7 +116,7 @@ void setPose(double x, double y, double heading) {
     setHeading(heading);
     pose_x = x;
     pose_y = y;
-    start_over = true;
+    manual_changes++;
 }
 
 double getX() {

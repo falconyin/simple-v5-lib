@@ -55,6 +55,11 @@ void fastAuton() {
 
 void pre_auton(void) {
     calibrateInertial(); // keep the robot still for about 2 seconds
+    if (!checkDevices()) {
+        // Something is unplugged or overheating: the controller rumbles, and the Brain screen
+        // says what. Give it time to be read before the autonomous selector takes the screen.
+        wait(5, seconds);
+    }
 
     addAuton("Left side", leftSideAuton);
     addAuton("Right side", rightSideAuton);

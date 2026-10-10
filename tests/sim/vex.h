@@ -3,7 +3,10 @@
 // computer (see tests/run_tests.sh). It only has the parts of the VEX API the library uses.
 //
 // - Each side of the drivetrain responds to its voltage like a real motor (speed follows the
-//   command with a 0.1 s delay). Ports 1-3 are the left side, 4-6 the right side.
+//   command with a 0.1 s delay). Ports 1-3 are the left side, 4-6 the right side. A side gets the
+//   average of its three motors, so a motor that spins the wrong way slows its side down.
+// - Setup mistakes can be switched on: a motor unplugged or set to the wrong direction, the left and
+//   right side swapped, the gyro rate with the wrong sign, a wheel size that differs from the config.
 // - The inertial sensor reports the heading worked out from the two wheel speeds.
 // - Rotation sensors act as tracking wheels: the test tells the simulator which ports they are on
 //   and where they sit on the robot. bump() shoves the robot sideways, like another robot would.
@@ -35,7 +38,30 @@ inline double fwd_wheel_offset = 0;  // inches to the right of the robot's cente
 inline double side_wheel_offset = 0; // inches in front of the robot's center
 inline double track_wheel_diam = 2.75;
 inline double fwd_wheel = 0, side_wheel = 0; // inches rolled
-const double MAXV = 70, TAU = 0.1, TRACK = 12;
+// Setup mistakes (by port index: PORT1 = 0)
+inline bool unplugged[21] = {};       // device not plugged in
+inline bool wrong_direction[21] = {}; // motor spins the other way than the library thinks
+inline double heat[21] = {};          // motor temperature above the normal 35 C
+inline bool sides_swapped = false;    // the left motors' ports are really on the right side, and back
+inline bool gyro_rate_flipped = false; // the gyro rate has the other sign than the library assumes
+inline double wheel_diam = 3.25;      // the real drive wheel size (the config says 3.25)
+inline double track = 12;             // the real track width
+inline double motor_cmd[21] = {};     // the last power each motor was given
+const double MAXV = 70, TAU = 0.1;
+// Which side a drive motor port is on (0 = left, 1 = right)
+inline int sideOf(int port) { return (port >= 3) != sides_swapped ? 1 : 0; }
+// A side gets the average power of its three motors
+inline void updateSide(int side) {
+    double sum = 0;
+    for (int p = 0; p < 6; p++) if (sideOf(p) == side) sum += motor_cmd[p];
+    cmd[side] = sum / 3;
+}
+// The robot is pushed straight forward by hand (motors coasting)
+inline void push(double inches) {
+    dist[0] += inches; dist[1] += inches; fwd_wheel += inches;
+    x += inches * sin(heading * M_PI / 180);
+    y += inches * cos(heading * M_PI / 180);
+}
 inline void step();
 // Another robot shoves ours sideways (positive = to the robot's right) without turning it
 inline void bump(double right) {
@@ -51,7 +77,7 @@ inline void step() {               // 1 ms
         dist[s] += v[s] * 0.001;
         peak = fmax(peak, fabs(v[s]));
     }
-    rate = (v[0] - v[1]) / TRACK * 180 / M_PI;
+    rate = (v[0] - v[1]) / track * 180 / M_PI;
     heading += rate * 0.001;
     double vc = (v[0] + v[1]) / 2;
     x += vc * sin(heading * M_PI / 180) * 0.001;
@@ -68,6 +94,7 @@ namespace vex {
 enum { PORT1=0,PORT2,PORT3,PORT4,PORT5,PORT6,PORT7,PORT8,PORT9,PORT10 };
 enum gearSetting { ratio36_1, ratio18_1, ratio6_1 };
 enum class rotationUnits { deg, rev };
+enum class temperatureUnits { celsius, fahrenheit };
 enum class velocityUnits { dps, pct };
 enum class percentUnits { pct };
 enum class voltageUnits { mV, volt };
@@ -85,23 +112,34 @@ struct screen { int lines = 0, clears = 0; void clearScreen(){ clears++; } void 
   bool pressing(){return false;} int xPosition(){return 0;} void clearLine(int){} };
 struct brain { double timer(timeUnits u){ return u == timeUnits::msec ? sim::t_ms : sim::t_ms / 1000; } screen Screen; };
 struct axis { int value = 0; int position(percentUnits){ return value; } };
-struct button { bool pressing(){ return false; } };
-struct controller { axis Axis1, Axis2, Axis3, Axis4; button ButtonLeft, ButtonRight; screen Screen; };
-const double CIRC = 3.25 * M_PI, RATIO = 2.0 / 3.0;
-struct motor { int side; motor(int port, gearSetting, bool) : side(port >= 3 ? 1 : 0) {}
-  double position(rotationUnits){ return sim::dist[side] / CIRC / RATIO; }
-  double velocity(velocityUnits){ return sim::v[side] / CIRC / RATIO * 360; }
-  void stop(brakeType b){ sim::mode[side] = b == brakeType::coast ? 1 : 2; }
-  void spin(directionType, double mv, voltageUnits){ sim::mode[side] = 0; sim::cmd[side] = fmax(-100, fmin(100, mv / 120)); sim::peak_cmd = fmax(sim::peak_cmd, fabs(sim::cmd[side])); } };
-struct motor_group { motor *m; template<class... M> motor_group(motor &first, M&...) : m(&first) {}
-  void stop(brakeType b){ m->stop(b); } void spin(directionType d, double x, voltageUnits u){ m->spin(d, x, u); } };
+struct button { bool down = false; bool pressing(){ return down; } };
+struct controller { axis Axis1, Axis2, Axis3, Axis4; button ButtonLeft, ButtonRight, ButtonUp, ButtonDown, ButtonA, ButtonB, ButtonX, ButtonY;
+  screen Screen; int rumbles = 0; void rumble(const char*){ rumbles++; } };
+const double RATIO = 2.0 / 3.0;
+struct motor { int port;
+  motor(int p, gearSetting, bool) : port(p) {}
+  int side(){ return sim::sideOf(port); }
+  double sign(){ return sim::unplugged[port] ? 0 : (sim::wrong_direction[port] ? -1 : 1); }
+  bool installed(){ return !sim::unplugged[port]; }
+  double temperature(temperatureUnits){ return 35 + sim::heat[port]; }
+  double position(rotationUnits){ return sign() * sim::dist[side()] / (sim::wheel_diam * M_PI) / RATIO; }
+  double velocity(velocityUnits){ return sign() * sim::v[side()] / (sim::wheel_diam * M_PI) / RATIO * 360; }
+  void stop(brakeType b){ sim::mode[side()] = b == brakeType::coast ? 1 : 2; }
+  void spin(directionType, double mv, voltageUnits){
+    double pct = fmax(-100, fmin(100, mv / 120));
+    sim::mode[side()] = 0; sim::motor_cmd[port] = sign() * pct; sim::updateSide(side());
+    sim::peak_cmd = fmax(sim::peak_cmd, fabs(pct)); } };
+struct motor_group { std::vector<motor*> m; template<class... M> motor_group(M&... all) : m{&all...} {}
+  void stop(brakeType b){ for (motor *x : m) x->stop(b); } void spin(directionType d, double x, voltageUnits u){ for (motor *mm : m) mm->spin(d, x, u); } };
 struct rotation { int port; bool reversed;
   rotation(int p, bool r = false) : port(p), reversed(r) {}
+  bool installed(){ return !sim::unplugged[port]; }
   double position(rotationUnits){
     double inches = port == sim::fwd_wheel_port ? sim::fwd_wheel : port == sim::side_wheel_port ? sim::side_wheel : 0;
     return inches / (M_PI * sim::track_wheel_diam) * (reversed ? -1 : 1); } };
-struct inertial { inertial(int){} double rotation(rotationUnits){ return sim::heading; }
-  double gyroRate(axisType, rateUnits){ return -sim::rate; } // counter-clockwise positive, like the real IMU (assumed)
+struct inertial { int port; inertial(int p) : port(p) {} bool installed(){ return !sim::unplugged[port]; }
+  double rotation(rotationUnits){ return sim::heading; }
+  double gyroRate(axisType, rateUnits){ return sim::gyro_rate_flipped ? sim::rate : -sim::rate; } // counter-clockwise positive, like the real IMU (assumed)
   void calibrate(){} bool isCalibrating(){ return false; }
   void setRotation(double d, rotationUnits){ sim::heading = d; } void setHeading(double, rotationUnits){} };
 }

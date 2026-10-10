@@ -24,8 +24,9 @@ int main() {
     // Back up to (0, -12) without turning around: backwards = true
     PID_drive_to_point(0, -12, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);
 
-    // The same square again, as one smooth path: chained points don't stop, they curve from one
-    // point to the next. The last point is a normal movement, so the robot stops exactly there.
+    // The square's corners again, as one smooth path (starting from (0, -12), where the robot is now,
+    // so the first side is 36 inches): chained points don't stop, they curve from one point to the
+    // next. The last point is a normal movement, so the robot stops exactly there.
     PID_drive_to_point_chain(0, 24, 4);    // move on 4 inches before the point
     PID_drive_to_point_chain(24, 24, 4);
     PID_drive_to_point_chain(24, 0, 4);

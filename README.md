@@ -15,7 +15,7 @@ Standard "move-until-target" code can cause robots to overshoot and lose accurac
 
 Advanced public libraries (like PROS) often use complex methods that are difficult for beginners to understand. Using these tools too early can force you in a **"using" mindset** rather than a **"learning" mindset**. 
 
-This library uses simple language and easy logic. It helps you get the hang of it so you can eventually build your own custom library from scratch.
+This library uses simple language and easy logic. It helps you get the hang of it so you can eventually build your own custom library from scratch. When you want to know how something works inside, [docs/how-it-works.md](docs/how-it-works.md) explains every part.
 
 ## What's Included
 
@@ -24,6 +24,8 @@ This library uses simple language and easy logic. It helps you get the hang of i
 * **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
 * **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal.
+* **Tuning from the controller:** `tuneWithController()` changes kP, kI and kD with the controller buttons and tries them right away, no re-downloading.
+* **Robot setup checks:** `checkDevices()` finds unplugged or overheating devices, `testDrivetrain()` finds motors set to the wrong direction, and `measureTrackWidth()` / `measureWheelSize()` measure your robot for `simpleV5LibConfig.h`.
 * **Driver control:** `tankDrive()` and `arcadeDrive()`, with a joystick deadband and curve.
 * **Autonomous selector:** pick your routine on the Brain screen or the controller before the match.
 * **A reusable `PIDController`:** the same one the drivetrain uses. Use it for your own lift or arm too.
@@ -36,9 +38,10 @@ This library uses simple language and easy logic. It helps you get the hang of i
 
 This is an example of a drivetrain and what the motor names (left front, left middle, etc.) stand for:
 ![Drivetrain](images/drivetrainExampleImage.png)
-4. **Calibrate:** Call `calibrateInertial();` once before any movement (for example in `pre_auton`). It takes about 2 seconds, and the robot must stay still.
-5. **Tune:** Go to your simpleV5LibConfig.h file and tune your kp, ki, and kd constants by following this [YouTube Video Tutorial](https://www.youtube.com/watch?v=WN3_vxA_D04).
-6. **Code:** Start writing your autonomous routes! `examples/competitionTemplate` is a full competition program that uses everything, `examples/tuning` helps you tune with live graphs, `examples/odometry` drives to field points, and the other examples show a single movement. Every movement stops on its own after a timeout (see `TURN_TIMEOUT_MS` and `FORWARD_TIMEOUT_MS`), so a stuck robot won't freeze your whole autonomous.
+4. **Check and measure:** Run `examples/robotSetup` once. It checks that everything is plugged in and that the motor directions are right, and measures your track width and wheel size. Put the numbers it shows into simpleV5LibConfig.h.
+5. **Calibrate:** Call `calibrateInertial();` once before any movement (for example in `pre_auton`). It takes about 2 seconds, and the robot must stay still.
+6. **Tune:** Run `examples/tuning`: it lets you change kp, ki and kd from the controller and try them right away, with a live graph on the Brain screen. Copy the gains it shows into simpleV5LibConfig.h when you're done. The [tuning guide](docs/how-it-works.md#9-tuning-step-by-step) and this [YouTube Video Tutorial](https://www.youtube.com/watch?v=WN3_vxA_D04) explain how.
+7. **Code:** Start writing your autonomous routes! `examples/competitionTemplate` is a full competition program that uses everything, `examples/odometry` drives to field points, and the other examples show a single movement. Every movement stops on its own after a timeout (see `TURN_TIMEOUT_MS` and `FORWARD_TIMEOUT_MS`), so a stuck robot won't freeze your whole autonomous.
 
 ## Quick Reference
 
@@ -73,9 +76,20 @@ intake.spin(forward);              // your own motor
 waitUntilDone();                   // wait until the drive is finished
 cancelMovement();                  // stop the current movement now
 
-// Live data while tuning
+// How did the last movement go?
+MovementResult r = lastMovementResult();   // r.time_ms, r.error, r.overshoot, r.timed_out
+
+// Tuning
 graphOnScreen(true);   // error and power as a graph on the Brain screen
 logToTerminal(true);   // numbers in the terminal, to paste into a spreadsheet
+tuneWithController();  // change kP/kI/kD with the controller buttons and try them (B ends it)
+turnGains.kp = 3.5;    // or change the gains in code (also forwardGains, swingGains, arcGains)
+
+// Robot setup (see examples/robotSetup)
+checkDevices();        // everything plugged in? motors not too hot? (doesn't move)
+testDrivetrain();      // motor directions, left/right, gyro sign (the robot turns a little)
+measureTrackWidth();   // spins 3 times, shows TRACK_WIDTH_INCH and tracking wheel offsets
+measureWheelSize(48);  // push the robot 48 inches by hand, shows WHEEL_DIAMETER_INCH
 
 // Driver control (inside the while loop in usercontrol)
 arcadeDrive();   // or tankDrive();

@@ -53,8 +53,6 @@ static double limitPower(double power, double max_power) {
 enum { ARM_NO_COMMAND, ARM_MOVE, ARM_MANUAL, ARM_HOLD_HERE, ARM_RELEASE };
 // What the background task is doing
 enum { ARM_LOOSE, ARM_MOVING, ARM_HOLDING, ARM_DRIVEN };
-// How the last moveTo went
-enum { ARM_ON_THE_WAY, ARM_THERE, ARM_GAVE_UP };
 
 Arm::Arm(motor &one_motor, double kp, double ki, double kd)
     : own_motors(one_motor), motors(&own_motors), pid(kp, ki, kd, ARM_INTEGRAL_RANGE) {
@@ -74,10 +72,12 @@ void Arm::init() {
     target = 0;
     max_speed = 100;
     manual_power = 0;
-    status = ARM_THERE;
+    finished_request = 0;
+    arrived = true;
     last_command = ARM_NO_COMMAND;
     state = ARM_LOOSE;
-    if (arm_count < MAX_MECHANISMS) {
+    registered = arm_count < MAX_MECHANISMS;
+    if (registered) {
         arms[arm_count] = this;
         arm_count++;
     }
@@ -85,6 +85,13 @@ void Arm::init() {
 
 // Leave a command for the background task
 void Arm::send(int new_command) {
+    if (!registered) {
+        // The background task doesn't know this Arm, so nothing would ever happen. Say so, and make
+        // waitUntilDone return false right away instead of waiting forever.
+        printf("Only %d Arms can be used: this one does nothing\n", MAX_MECHANISMS);
+        arrived = false;
+        return;
+    }
     last_command = new_command;
     command = new_command;
     request++; // the background task sees this change and picks up the command
@@ -93,24 +100,24 @@ void Arm::send(int new_command) {
 
 void Arm::moveTo(double degrees, double speed) {
     degrees = fmax(lowest, fmin(highest, degrees));
+    speed = fmin(100, fabs(speed)); // a speed limit, the direction comes from the PID
     if (last_command == ARM_MOVE && degrees == target && speed == max_speed) {
         return; // already on its way there, or holding there
     }
     target = degrees;
     max_speed = speed;
-    status = ARM_ON_THE_WAY;
     send(ARM_MOVE);
 }
 
 bool Arm::isDone() {
-    return status != ARM_ON_THE_WAY;
+    return finished_request == request;
 }
 
 bool Arm::waitUntilDone() {
     while (!isDone()) {
         vexDelay(10);
     }
-    return status == ARM_THERE;
+    return arrived;
 }
 
 void Arm::manual(double power) {
@@ -120,7 +127,6 @@ void Arm::manual(double power) {
     if (power != 0) {
         manual_power = power;
         if (last_command != ARM_MANUAL) {
-            status = ARM_THERE; // no moveTo to wait for any more
             send(ARM_MANUAL);
         }
     } else if (last_command == ARM_MANUAL) {
@@ -143,7 +149,6 @@ double Arm::position() {
 }
 
 void Arm::release() {
-    status = ARM_THERE;
     send(ARM_RELEASE);
 }
 
@@ -163,6 +168,10 @@ void Arm::begin(int new_command) {
     } else if (new_command == ARM_RELEASE) {
         motors->stop(brakeType::coast);
         state = ARM_LOOSE;
+    }
+    if (new_command != ARM_MOVE) {
+        arrived = true;
+        finished_request = seen_request; // nothing to wait for
     }
 }
 
@@ -191,9 +200,8 @@ void Arm::update() {
             // The motor's own hold mode keeps it here from now on, even with something heavy on it
             motors->stop(brakeType::hold);
             state = ARM_HOLDING;
-            if (request == seen_request) { // not if your code has already sent the arm somewhere else
-                status = there ? ARM_THERE : ARM_GAVE_UP;
-            }
+            arrived = there; // first, so it is ready once finished_request says this move is done
+            finished_request = seen_request;
             return;
         }
         double rate = motors->velocity(velocityUnits::dps) / 100; // degrees per 10 ms
@@ -238,13 +246,18 @@ void Intake::init() {
     last_power = 0;
     last_unjam = true;
     state = INTAKE_STOPPED;
-    if (intake_count < MAX_MECHANISMS) {
+    registered = intake_count < MAX_MECHANISMS;
+    if (registered) {
         intakes[intake_count] = this;
         intake_count++;
     }
 }
 
 void Intake::spin(double new_power, bool new_unjam) {
+    if (!registered) {
+        printf("Only %d Intakes can be used: this one does nothing\n", MAX_MECHANISMS);
+        return;
+    }
     if (new_power == last_power && new_unjam == last_unjam) {
         return; // nothing new: don't start over (a jammed intake stays stopped)
     }

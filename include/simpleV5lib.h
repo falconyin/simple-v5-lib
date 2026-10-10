@@ -414,6 +414,7 @@ void arcadeDrive();
 //   motor intakeMotor(PORT10, ratio6_1, false);
 //   Intake intake(intakeMotor);
 // A background task moves them, so your code goes on right away, while driving too.
+// Up to 8 Arms and 8 Intakes (more do nothing, and say so in the terminal).
 // See examples/mechanisms.
 // ============================================================================
 
@@ -470,8 +471,12 @@ private:
     std::atomic<double> target;
     std::atomic<double> max_speed;
     std::atomic<double> manual_power;
-    std::atomic<int> status;  // on the way, there, or gave up (set by the background task too)
     int last_command;         // the last command your code gave, to ignore repeats
+    bool registered;          // false if there were already 8 Arms: then this one does nothing
+    // Set by the background task: the last request it has finished, and if that moveTo got there.
+    // Done means finished_request == request, so an old move finishing can't count for a new one.
+    std::atomic<int> finished_request;
+    std::atomic<bool> arrived;
     void init();
     void send(int new_command);
     // Only used by the background task
@@ -519,6 +524,7 @@ private:
     std::atomic<int> jams;    // set by the background task
     double last_power;        // the last power your code gave, to ignore repeats
     bool last_unjam;
+    bool registered; // false if there were already 8 Intakes: then this one does nothing
     void init();
     // Only used by the background task
     int seen_request = 0;

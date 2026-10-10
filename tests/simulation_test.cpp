@@ -879,6 +879,10 @@ int main() {
         double fastest = 0;
         while (!arm.isDone()) { fastest = fmax(fastest, sim::mech_cmd[ARM]); vexDelay(5); }
         check("arm: max_speed 30 limits the power", fastest <= 30.01 && fabs(arm.position() - 150) < ARM_TOLERANCE, fastest, arm.position());
+        arm.moveTo(80, -30); // a negative speed is still a speed limit, not a direction
+        fastest = 0;
+        while (!arm.isDone()) { fastest = fmax(fastest, fabs(sim::mech_cmd[ARM])); vexDelay(5); }
+        check("  max_speed -30 works like 30", fastest <= 30.01 && fabs(arm.position() - 80) < ARM_TOLERANCE, fastest, arm.position());
 
         // Driver control: a button that calls moveTo every loop, and manual(0) from an idle stick
         t_start = sim::t_ms;
@@ -1021,6 +1025,19 @@ int main() {
         sim::mech_jammed[PORT19] = sim::mech_jammed[PORT20] = false;
         roller.stop();
         vexDelay(50);
+
+        // Only 8 of each: one more must not hang waitUntilDone, and must not move its motor
+        static motor spare(PORT21, ratio36_1, false);
+        for (int i = 0; i < 6; i++) { new Arm(spare); new Intake(spare); } // with the 2 above: 8 each
+        Arm *ninth_arm = new Arm(spare);
+        Intake *ninth_intake = new Intake(spare);
+        t_start = sim::t_ms;
+        ninth_arm->moveTo(100);
+        arrived = ninth_arm->waitUntilDone();
+        check("9th Arm: waitUntilDone returns false right away", !arrived && sim::t_ms - t_start < 1, arrived, sim::t_ms - t_start);
+        ninth_intake->spin(100);
+        vexDelay(100);
+        check("9th Intake: does nothing", sim::mech_cmd[PORT21] == 0 && sim::mech_mode[PORT21] == 0, sim::mech_cmd[PORT21], 0);
     }
 
     // ---------- Robot setup checks ----------

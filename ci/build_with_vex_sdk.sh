@@ -21,7 +21,7 @@ CXX="${CXX:-clang++}"
 if [ -n "${VEX_SDK_HOME:-}" ]; then
     # ---------- Use an SDK that is already installed ----------
     SDK_DIR="$VEX_SDK_HOME"
-    VERSION="${VEX_SDK_VERSION:-$(ls "$SDK_DIR" | grep '^V5_' | sort | tail -1)}"
+    VERSION="${VEX_SDK_VERSION:-$(ls "$SDK_DIR" 2>/dev/null | grep '^V5_' | sort | tail -1 || true)}"
     if [ -z "$VERSION" ] || [ ! -d "$SDK_DIR/$VERSION" ]; then
         echo "No V5 SDK '$VERSION' in $SDK_DIR" >&2
         exit 1
@@ -63,7 +63,7 @@ echo "C++ ARM:     $CXX_ARM_INC"
 # Compiler headers (stddef.h, stdarg.h, ...) that the SDK ships for its own clang. Searched last
 # (-idirafter), so a clang that has its own, like the one in CI, never uses them; the VEX extension's
 # clang has none and needs them.
-CLANG_INC="$(ls -d "$V5"/clang/*/include 2>/dev/null | sort -V | tail -1)"
+CLANG_INC="$(ls -d "$V5"/clang/*/include 2>/dev/null | sort -V | tail -1 || true)"
 echo "clang hdrs:  ${CLANG_INC:-(none)}"
 
 # ---------- Compile ----------

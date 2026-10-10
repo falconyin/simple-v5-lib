@@ -520,7 +520,8 @@ static void driveToPoint(const MotionRequest &request) {
         double distance = hypot(tx - getX(), ty - getY());
         double motor_rate = getMotorRate();
         motion_progress = hypot(getX() - start_x, getY() - start_y);
-        overshoot.update(ahead, 1); // a negative "ahead" means the robot drove past the point
+        // Driving forward, a negative "ahead" means the robot drove past the point; backwards, a positive one
+        overshoot.update(ahead, request.backwards ? -1 : 1);
 
         // Keep aiming at the point, until we are close
         if (distance > POINT_AIM_DISTANCE) {

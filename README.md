@@ -88,8 +88,8 @@ turnGains.kp = 3.5;    // or change the gains in code (also forwardGains, swingG
 // Robot setup (see examples/robotSetup)
 checkDevices();        // everything plugged in? motors not too hot? (doesn't move)
 testDrivetrain();      // motor directions, left/right, gyro sign (the robot turns a little)
-measureTrackWidth();   // spins 3 times, shows TRACK_WIDTH_INCH and tracking wheel offsets
 measureWheelSize(48);  // push the robot 48 inches by hand, shows WHEEL_DIAMETER_INCH
+measureTrackWidth();   // spins 3 times, shows TRACK_WIDTH_INCH and tracking wheel offsets (after measureWheelSize)
 
 // Driver control (inside the while loop in usercontrol)
 arcadeDrive();   // or tankDrive();

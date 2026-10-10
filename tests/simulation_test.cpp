@@ -355,6 +355,11 @@ int main() {
     forwardGains = saved_forward;
     check("gains changed after start: movement keeps its own", fabs(sim::y - 24) < 1, sim::y, 24);
 
+    reset();
+    PID_drive_to_point(0, -24, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);
+    r = lastMovementResult();
+    check("backwards drive to point: overshoot is small, not 24", r.overshoot < 1 && fabs(sim::y + 24) < 1, r.overshoot, sim::y);
+
     // The tuner's "every other try goes back" must bring the robot back to its spot
     reset();
     PID_arc(90, 24, 0.5, 0.2); PID_arc(0, -24, 0.5, 0.2); settle();
@@ -459,6 +464,12 @@ int main() {
     check("measureWheelSize: real wheels are 3.30, not 3.25", fabs(wheels.wheel_diameter - 3.30) < 0.01, wheels.wheel_diameter, 3.30);
     check("  tracking wheel (0 if none)", TRACKING_FORWARD_PORT < 0 ? wheels.tracking_wheel_diameter == 0
           : fabs(wheels.tracking_wheel_diameter - sim::track_wheel_diam) < 0.01, wheels.tracking_wheel_diameter, sim::track_wheel_diam);
+    // The wheels are still bigger than the config says: the track width must use the measured size
+    reset();
+    track = measureTrackWidth();
+    check("measureTrackWidth after measureWheelSize: still 12", fabs(track.track_width - 12) < 0.1, track.track_width, 12);
+    check("  tracking wheel offsets with the measured wheel size", fabs(track.forward_offset - TRACKING_FORWARD_OFFSET) < 0.02
+          && fabs(track.sideways_offset - TRACKING_SIDEWAYS_OFFSET) < 0.02, track.forward_offset, track.sideways_offset);
 
     printf("%d failures\n", fails);
     fflush(stdout);

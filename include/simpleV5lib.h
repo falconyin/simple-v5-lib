@@ -302,6 +302,8 @@ bool testDrivetrain();
 // your drivetrain really turns with (wheels slide a little while turning, so it is often a bit
 // more than the tape measure says), and the TRACKING_..._OFFSET of your tracking wheels.
 // Shows the numbers to put in simpleV5LibConfig.h. THE ROBOT MOVES, give it room.
+// It counts inches with the wheel size, so run measureWheelSize() first: it uses that result
+// (in the same program run), even before you have put the new wheel size in the config.
 struct TrackWidthResult {
     double track_width;     // inches, 0 if the measurement failed
     double forward_offset;  // TRACKING_FORWARD_OFFSET (0 without a forward tracking wheel)

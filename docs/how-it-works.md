@@ -350,7 +350,9 @@ checks in order:
   The inertial sensor gives the angle, the motors give the inches, so the track width is
   `(left inches - right inches) / angle`. Wheels slide sideways a little while turning, so the
   result is often a bit more than the tape measure says, and that's the number arcs need.
-  The tracking wheel offsets come out the same way.
+  The tracking wheel offsets come out the same way. The inches are counted with the wheel
+  size, so a wrong wheel size makes the track width wrong too: run `measureWheelSize()` first,
+  and `measureTrackWidth()` uses what it measured.
 - **`measureWheelSize(48)`**: you push the robot exactly 48 inches by hand. If the library
   counted 47 inches, the wheels are really `48 / 47` times as big as the config says. A
   wrong `MOTOR_TO_WHEEL_GEAR_RATIO` shows up here too, as a wheel size that is way off.

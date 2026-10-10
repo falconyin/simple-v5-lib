@@ -83,6 +83,12 @@ static double motorInches(motor &m) {
     return m.position(rotationUnits::rev) * WHEEL_CIRCUMFERENCE_INCH * MOTOR_TO_WHEEL_GEAR_RATIO;
 }
 
+// Real wheel size / the size in simpleV5LibConfig.h, from the last measureWheelSize() in this
+// program run (1 = not measured yet). measureTrackWidth uses them: with wheels that are really a
+// bit bigger, every inch the library counts is really a bit more, and so is the track width.
+static double drive_wheel_scale = 1;
+static double tracking_wheel_scale = 1;
+
 // ============================================================================
 // checkDevices
 // ============================================================================
@@ -326,8 +332,8 @@ TrackWidthResult measureTrackWidth() {
         controllerMessage("MEASURING FAILED", "see Brain screen");
         return result;
     }
-    double left = motorInches(leftFront) - start_left;
-    double right = motorInches(rightFront) - start_right;
+    double left = (motorInches(leftFront) - start_left) * drive_wheel_scale;
+    double right = (motorInches(rightFront) - start_right) * drive_wheel_scale;
     // The left wheels rolled forward and the right ones backward, each half the track width from the center
     result.track_width = (left - right) / turned;
 
@@ -336,11 +342,12 @@ TrackWidthResult measureTrackWidth() {
     // Signs as in odometry.cpp: turning clockwise rolls a forward wheel on the right side backwards,
     // and a sideways wheel in front of the center to the right
     if (TRACKING_FORWARD_PORT >= 0) {
-        result.forward_offset = -(getForwardTrackingWheel() - start_forward) / turned;
+        result.forward_offset = -(getForwardTrackingWheel() - start_forward) * tracking_wheel_scale / turned;
         report("TRACKING_FORWARD_OFFSET = %.2f  (now %.2f)", result.forward_offset, TRACKING_FORWARD_OFFSET);
     }
     if (TRACKING_SIDEWAYS_PORT >= 0) {
-        result.sideways_offset = (getSidewaysTrackingWheel() - start_sideways) / turned;
+        // (both tracking wheels are TRACKING_WHEEL_DIAMETER_INCH, so the same correction fits both)
+        result.sideways_offset = (getSidewaysTrackingWheel() - start_sideways) * tracking_wheel_scale / turned;
         report("TRACKING_SIDEWAYS_OFFSET = %.2f  (now %.2f)", result.sideways_offset, TRACKING_SIDEWAYS_OFFSET);
     }
     char line[32];
@@ -380,6 +387,7 @@ WheelSizeResult measureWheelSize(double push_inches) {
         report("(backwards means the motor directions are wrong)");
     } else {
         result.wheel_diameter = WHEEL_DIAMETER_INCH * push_inches / drive;
+        drive_wheel_scale = push_inches / drive;
         report("WHEEL_DIAMETER_INCH = %.3f  (now %.3f)", result.wheel_diameter, WHEEL_DIAMETER_INCH);
     }
     if (TRACKING_FORWARD_PORT >= 0) {
@@ -389,6 +397,7 @@ WheelSizeResult measureWheelSize(double push_inches) {
             report("backwards? change TRACKING_FORWARD_REVERSED");
         } else {
             result.tracking_wheel_diameter = TRACKING_WHEEL_DIAMETER_INCH * push_inches / forward;
+            tracking_wheel_scale = push_inches / forward;
             report("TRACKING_WHEEL_DIAMETER_INCH = %.3f  (now %.3f)", result.tracking_wheel_diameter,
                    TRACKING_WHEEL_DIAMETER_INCH);
         }

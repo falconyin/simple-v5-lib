@@ -40,16 +40,17 @@ int main() {
     testDrivetrain();
     waitForA();
 
-    // 3. Measure the track width (and the tracking wheel offsets): THE ROBOT SPINS 3 times.
+    // 3. Measure the wheel size: push the robot by hand, straight forward, 48 inches
+    //    (two tiles) along a tape measure. It tells you when to press A.
+    measureWheelSize(48);
+    waitForA();
+
+    // 4. Measure the track width (and the tracking wheel offsets): THE ROBOT SPINS 3 times.
+    //    (after the wheel size: it uses the wheel size that step 3 measured)
     Controller.Screen.clearScreen();
     Controller.Screen.print("A: measure track");
     waitForA();
     measureTrackWidth();
-    waitForA();
-
-    // 4. Measure the wheel size: push the robot by hand, straight forward, 48 inches
-    //    (two tiles) along a tape measure. It tells you when to press A.
-    measureWheelSize(48);
 
     // Copy the numbers into simpleV5LibConfig.h, download your program again,
     // and run this once more: the numbers should now hardly change.

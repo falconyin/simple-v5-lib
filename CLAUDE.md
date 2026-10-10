@@ -32,7 +32,8 @@ VEX_SDK_VERSION=V5_20240802_15_00_00 ci/build_with_vex_sdk.sh
 ```
 
 Both are what `.github/workflows/build.yml` runs on every PR. `ci/build_with_vex_sdk.sh` additionally
-needs `curl`, `unzip`, `python3`, and `binutils-arm-none-eabi`.
+needs `clang` (it defaults to `CXX=clang++` and cross-compiles with `-target`, so g++ won't do),
+`curl`, `unzip`, `python3`, and `binutils-arm-none-eabi`.
 
 There is no test framework and no per-test selection: `tests/simulation_test.cpp` is a single `main()`
 of `check(name, ok, a, b)` calls that print PASS/FAIL and exit with the failure count. To run one

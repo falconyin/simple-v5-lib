@@ -21,7 +21,7 @@ This library uses simple language and easy logic. It helps you get the hang of i
 
 * **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest`, `PID_swing` and `PID_arc` (drive along a curve), with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight.
 * **Odometry:** the robot keeps track of where it is on the field (x, y in inches), and `PID_drive_to_point` / `PID_turn_to_point` drive to field points. Works with just the drive motors and inertial sensor; tracking wheels are optional.
-* **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes.
+* **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes. `PID_drive_to_point_chain` turns a list of field points into one smooth path.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
 * **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal.
 * **Tuning from the controller:** `tuneWithController()` changes kP, kI and kD with the controller buttons and tries them right away, no re-downloading.
@@ -67,6 +67,7 @@ getX(); getY();                                     // where the robot is now
 // Chained: don't stop between movements (much faster). End with a normal movement.
 PID_forward_chain(24, 3);   // move on to the next movement 3 inches before the target
 PID_turn_chain(90, 10);     // move on 10 degrees before the target
+PID_drive_to_point_chain(24, 24, 4);  // field points too: move on 4 inches before (24, 24), curving to the next
 PID_forward(24, 0.3, 0.2);  // stops exactly at the end
 
 // Do something while driving

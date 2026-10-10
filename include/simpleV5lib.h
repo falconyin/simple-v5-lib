@@ -235,7 +235,7 @@ void cancelMovement();
 // ============================================================================
 // Chained movements: don't stop between movements
 // A chained movement finishes when it gets within exit_range of its target (inches for
-// PID_forward_chain, degrees for the others) and does NOT stop: the next movement takes
+// PID_forward_chain and PID_drive_to_point_chain, degrees for the others) and does NOT stop: the next movement takes
 // over while the robot is still moving. Much faster, a little less exact.
 // End your chain with a normal movement so the robot stops at the right place.
 // (If nothing follows within CHAIN_STOP_AFTER_MS, the drivetrain stops on its own.)
@@ -243,6 +243,11 @@ void cancelMovement();
 //   PID_forward_chain(24, 3);          // drive 24 inches, move on 3 inches before the end
 //   PID_turn_chain(90, 10);            // turn to 90, move on 10 degrees before
 //   PID_forward(24, 0.3, 0.2);         // normal movement: stops at the end
+//
+// With odometry, chain field points into a smooth path:
+//   PID_drive_to_point_chain(0, 24, 4);   // move on 4 inches before (0, 24)
+//   PID_drive_to_point_chain(24, 48, 4);  // curves towards the next point without stopping
+//   PID_drive_to_point(48, 48, 0.5, 0.2); // stops exactly at the last point
 // ============================================================================
 
 void PID_forward_chain(double target, double exit_range, double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100);
@@ -251,6 +256,15 @@ void PID_swing_chain(double target, driveSide moving_side, double exit_range,
                      double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
 void PID_arc_chain(double target, double radius, double exit_range,
                    double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100);
+// exit_range in inches. Moves on when the point is less than exit_range ahead and the robot roughly
+// faces it (within POINT_TURN_FIRST_ANGLE): a point beside the robot is driven to, not skipped.
+// After another chained movement it curves towards the point instead of turning first (unless the
+// point is more than 90 degrees around), so the robot never stops in the middle of the path.
+void PID_drive_to_point_chain(double x, double y, double exit_range,
+                              double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100, bool backwards = false);
+// exit_range in degrees
+void PID_turn_to_point_chain(double x, double y, double exit_range,
+                             double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100, bool backwards = false);
 
 // ============================================================================
 // Live data, for tuning

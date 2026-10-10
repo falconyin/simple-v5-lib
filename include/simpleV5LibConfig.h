@@ -104,6 +104,31 @@ const double DRIVE_CURVE = 2.0;
 // arcadeDrive only: turning power is multiplied by this. Lower it (e.g. 0.7) if turning feels too twitchy.
 const double DRIVE_TURN_SCALE = 1.0;
 
+// ---------- Mechanisms (Arm, Intake: see simpleV5lib.h) ----------
+// Arm (or lift) PID gains for moving to a position: power (percent) per degree of the motor.
+// Each Arm can be given its own instead.
+const double ARM_KP = 1.5;
+const double ARM_KI = 0.05;
+const double ARM_KD = 10;
+// Only add up the error (I) when closer than this many degrees. Bigger than the error that P alone
+// stops at when the arm is heavy, or I never starts.
+const double ARM_INTEGRAL_RANGE = 30;
+// Closer than this many degrees for ARM_SETTLE_MS counts as there: then the motor's hold mode
+// keeps the arm in place
+const double ARM_TOLERANCE = 3;
+const double ARM_SETTLE_MS = 50;
+// If it isn't there after this long (stuck on something?), it gives up and holds where it is
+const double ARM_TIMEOUT_MS = 2000;
+
+// Intake jam: the motors draw more than INTAKE_JAM_CURRENT amps each (a V5 motor draws at most 2.5)
+// while turning slower than INTAKE_JAM_SPEED percent, for INTAKE_JAM_MS milliseconds.
+// A motor needs a lot of power to draw that much, so at low power a jam may go unnoticed.
+const double INTAKE_JAM_CURRENT = 2.0;
+const double INTAKE_JAM_SPEED = 10;
+const double INTAKE_JAM_MS = 150;
+// To free a jam, the intake runs the other way (at the same power) for this long
+const double INTAKE_UNJAM_MS = 250;
+
 // ---------- Robot size ----------
 const double WHEEL_DIAMETER_INCH = 3.25;
 const double WHEEL_CIRCUMFERENCE_INCH = WHEEL_DIAMETER_INCH * M_PI;

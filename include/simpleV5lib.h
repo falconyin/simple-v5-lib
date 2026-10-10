@@ -58,12 +58,30 @@ struct PIDController {
 // ============================================================================
 
 // Call once before autonomous (for example in pre_auton). Takes about 2 seconds.
-// Keep the robot still while it runs.
+// Keep the robot still while it runs. Afterwards odometry starts at (0, 0) facing 0.
 void calibrateInertial();
 
 // Tell the robot which way it is facing right now, in degrees.
 // Useful at the start of an autonomous if the robot doesn't start facing 0.
 void setHeading(double degrees);
+
+// ============================================================================
+// Odometry: where is the robot on the field?
+// Positions are in inches: x to the right, y forward (the way heading 0 points).
+// It runs in the background and needs no extra code; tracking wheels are optional
+// (see simpleV5LibConfig.h).
+// ============================================================================
+
+// Tell the robot where it is right now, for example at the start of an autonomous:
+// setPose(0, 0, 0) = "here is (0, 0) and I'm facing 0 degrees"
+void setPose(double x, double y, double heading);
+
+double getX(); // inches
+double getY(); // inches
+// (the heading is getInertial())
+
+// Starts the odometry background task. calibrateInertial and setPose already call it.
+void startOdometry();
 
 // ============================================================================
 // Sensors
@@ -112,6 +130,17 @@ void PID_turn_relative(double degrees, double error_tolerance, double speed_tole
 void PID_turn_shortest(double heading, double error_tolerance, double speed_tolerance,
                        double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
 
+// Turn in place to face the field point (x, y), the shorter way around.
+// backwards = true points the back of the robot at it. Tolerances in degrees and degrees/10 ms.
+void PID_turn_to_point(double x, double y, double error_tolerance, double speed_tolerance,
+                       double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100, bool backwards = false);
+
+// Drive to the field point (x, y), using odometry. Turns towards it first if needed, and keeps
+// aiming at it while driving. backwards = true drives there in reverse.
+// Tolerances in inches and inches/s.
+void PID_drive_to_point(double x, double y, double error_tolerance, double speed_tolerance,
+                        double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100, bool backwards = false);
+
 // Which side of the drivetrain moves during a swing turn
 enum driveSide { LEFT_SIDE, RIGHT_SIDE };
 
@@ -151,12 +180,16 @@ void PID_swing_async(double target, driveSide moving_side, double error_toleranc
                      double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100);
 void PID_arc_async(double target, double radius, double error_tolerance, double speed_tolerance,
                    double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100);
+void PID_turn_to_point_async(double x, double y, double error_tolerance, double speed_tolerance,
+                             double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100, bool backwards = false);
+void PID_drive_to_point_async(double x, double y, double error_tolerance, double speed_tolerance,
+                              double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100, bool backwards = false);
 
 // Wait until the current movement is finished
 void waitUntilDone();
 
 // Wait until the current movement has gone this far from where it started
-// (inches for PID_forward, degrees for turns), or has finished
+// (inches for PID_forward and PID_drive_to_point, degrees for turns), or has finished
 void waitUntilTraveled(double amount);
 
 // true while a movement is running

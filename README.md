@@ -20,6 +20,7 @@ This library uses simple language and easy logic. It helps you get the hang of i
 ## What's Included
 
 * **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest`, `PID_swing` and `PID_arc` (drive along a curve), with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight.
+* **Odometry:** the robot keeps track of where it is on the field (x, y in inches), and `PID_drive_to_point` / `PID_turn_to_point` drive to field points. Works with just the drive motors and inertial sensor; tracking wheels are optional.
 * **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
 * **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal.
@@ -37,7 +38,7 @@ This is an example of a drivetrain and what the motor names (left front, left mi
 ![Drivetrain](images/drivetrainExampleImage.png)
 4. **Calibrate:** Call `calibrateInertial();` once before any movement (for example in `pre_auton`). It takes about 2 seconds, and the robot must stay still.
 5. **Tune:** Go to your simpleV5LibConfig.h file and tune your kp, ki, and kd constants by following this [YouTube Video Tutorial](https://www.youtube.com/watch?v=WN3_vxA_D04).
-6. **Code:** Start writing your autonomous routes! `examples/competitionTemplate` is a full competition program that uses everything, `examples/tuning` helps you tune with live graphs, and the other examples show a single movement. Every movement stops on its own after a timeout (see `TURN_TIMEOUT_MS` and `FORWARD_TIMEOUT_MS`), so a stuck robot won't freeze your whole autonomous.
+6. **Code:** Start writing your autonomous routes! `examples/competitionTemplate` is a full competition program that uses everything, `examples/tuning` helps you tune with live graphs, `examples/odometry` drives to field points, and the other examples show a single movement. Every movement stops on its own after a timeout (see `TURN_TIMEOUT_MS` and `FORWARD_TIMEOUT_MS`), so a stuck robot won't freeze your whole autonomous.
 
 ## Quick Reference
 
@@ -52,6 +53,13 @@ PID_swing(90, LEFT_SIDE, 0.5, 0.2);                 // swing to 90 degrees: only
 PID_arc(90, 24, 0.5, 0.2);                          // curve along a 24 inch circle until facing 90
 PID_arc(0, -24, 0.5, 0.2);                          // same, but backing up (negative radius)
 setHeading(0);                                      // "the robot is facing 0 degrees right now"
+
+// Odometry: field points in inches, x to the right, y forward
+setPose(0, 0, 0);                                   // "I'm at (0, 0) facing 0" (calibrateInertial does this too)
+PID_drive_to_point(24, 24, 0.5, 0.2);               // turn towards (24, 24) and drive there
+PID_drive_to_point(0, 0, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);  // back up to (0, 0)
+PID_turn_to_point(0, 48, 0.5, 0.2);                 // face (0, 48)
+getX(); getY();                                     // where the robot is now
 
 // Chained: don't stop between movements (much faster). End with a normal movement.
 PID_forward_chain(24, 3);   // move on to the next movement 3 inches before the target
@@ -85,6 +93,7 @@ cancelMovement();                       // at the start of usercontrol(), in cas
 * Turn targets are in degrees, clockwise is positive. You should know this, but 360 degrees make a full circle.
 * Speeds and powers are percentages, from -100 to 100.
 * Arcs need `TRACK_WIDTH_INCH` in simpleV5LibConfig.h: the distance between the middle of your left and right wheels.
+* Field positions (odometry) are in inches: x to the right, y forward, measured from where you called `setPose`. If you have tracking wheels, set their ports and positions in simpleV5LibConfig.h.
 
 ## Testing
 

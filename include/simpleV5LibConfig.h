@@ -66,6 +66,15 @@ const double ARC_KI = FORWARD_KI;
 const double ARC_KD = FORWARD_KD;
 const double ARC_INTEGRAL_RANGE = FORWARD_INTEGRAL_RANGE;
 
+// ---------- Driving to a point (PID_drive_to_point, needs odometry) ----------
+// Power added per degree the robot points away from the target point while driving to it
+const double POINT_HEADING_KP = 2.0;
+// Closer than this (inches), the robot stops re-aiming at the point and just finishes the distance.
+// Very close to the point, small position changes would swing the aim around a lot.
+const double POINT_AIM_DISTANCE = 6;
+// If the robot has to turn more than this (degrees) to face the point, it turns first, then drives
+const double POINT_TURN_FIRST_ANGLE = 20;
+
 // ---------- When is a movement finished? ----------
 // Default time limits in milliseconds. If a movement takes longer than this
 // (for example the robot is stuck on a wall), it gives up so autonomous can continue.
@@ -99,6 +108,21 @@ const double DRIVE_TURN_SCALE = 1.0;
 const double WHEEL_DIAMETER_INCH = 3.25;
 const double WHEEL_CIRCUMFERENCE_INCH = WHEEL_DIAMETER_INCH * M_PI;
 const double MOTOR_TO_WHEEL_GEAR_RATIO = 2.0 / 3.0;
+// ---------- Odometry: keeping track of where the robot is on the field ----------
+// Odometry works without any extra sensors: it uses the drive motors and the inertial sensor.
+// Tracking wheels make it more accurate: small unpowered wheels with a Rotation Sensor that
+// don't slip when the drivetrain pushes hard. Set a port to -1 if you don't have that wheel.
+//
+// Offsets are measured from the robot's center: the point halfway between the left and right
+// drive wheels, which is the point the robot turns around.
+const int TRACKING_FORWARD_PORT = -1;          // wheel that rolls when the robot drives forward
+const bool TRACKING_FORWARD_REVERSED = false;
+const double TRACKING_FORWARD_OFFSET = 0;      // inches to the right of the center (left = negative)
+const int TRACKING_SIDEWAYS_PORT = -1;         // wheel that rolls when the robot is pushed sideways
+const bool TRACKING_SIDEWAYS_REVERSED = false;
+const double TRACKING_SIDEWAYS_OFFSET = 0;     // inches in front of the center (behind = negative)
+const double TRACKING_WHEEL_DIAMETER_INCH = 2.75;
+
 // Distance between the middle of the left wheels and the middle of the right wheels, in inches.
 // Arcs use it to work out how much faster the outside wheels must go. Measure your robot!
 const double TRACK_WIDTH_INCH = 12.0;

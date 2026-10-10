@@ -79,16 +79,7 @@ void calibrateInertial() {
     while (Inertial.isCalibrating()) {
         vexDelay(10);
     }
-}
-
-void setHeading(double degrees) {
-    Inertial.setRotation(degrees, rotationUnits::deg);
-    // heading() only goes from 0 to 360, so wrap the value into that range
-    double heading = fmod(degrees, 360);
-    if (heading < 0) {
-        heading += 360;
-    }
-    Inertial.setHeading(heading, rotationUnits::deg);
+    startOdometry(); // start keeping track of the position, from (0, 0) facing 0
 }
 
 // ============================================================================
@@ -163,7 +154,7 @@ void stopDriving(brakeType mode) {
 // start it and return right away, so your code can do other things meanwhile.
 // ============================================================================
 
-enum motionType { MOTION_FORWARD, MOTION_TURN, MOTION_SWING_LEFT, MOTION_SWING_RIGHT, MOTION_ARC };
+enum motionType { MOTION_FORWARD, MOTION_TURN, MOTION_SWING_LEFT, MOTION_SWING_RIGHT, MOTION_ARC, MOTION_TO_POINT };
 
 struct MotionRequest {
     motionType type;
@@ -174,7 +165,14 @@ struct MotionRequest {
     double max_speed;
     double radius;     // arcs only: inches, negative = drive backwards along the arc
     double exit_range; // chained movements only: hand over to the next movement this close to the target
+    double target_x;   // driving to a point only: the point, in field inches
+    double target_y;
+    bool backwards;    // driving to a point only: drive there backwards
+    bool report_progress; // update motion_progress (for waitUntilTraveled)
 };
+
+static MotionRequest makeRequest(motionType type, double target, double error_tolerance, double speed_tolerance,
+                                 double timeout_ms, double max_speed);
 
 // Shared between your code and the background task. std::atomic makes sure that when one task
 // changes a value, the other task sees the new value (and everything written before it).
@@ -241,6 +239,30 @@ static double arcLength(double degrees, double radius) {
     return degrees * M_PI / 180 * radius;
 }
 
+// An angle squeezed into -180 to 180: the shortest way to turn by it
+static double wrap180(double degrees) {
+    double wrapped = fmod(degrees, 360);
+    if (wrapped > 180) {
+        wrapped -= 360;
+    } else if (wrapped < -180) {
+        wrapped += 360;
+    }
+    return wrapped;
+}
+
+// The heading that faces the field point (x, y) from where the robot is now
+// (degrees like getInertial: 0 = straight along +y, clockwise is positive)
+static double headingTo(double x, double y) {
+    return atan2(x - getX(), y - getY()) * 180 / M_PI;
+}
+
+// How far the point (x, y) is in front of the robot, measured along the way it faces
+// (negative = the point is behind the robot)
+static double distanceAhead(double x, double y, double heading) {
+    double facing = heading * M_PI / 180;
+    return (x - getX()) * sin(facing) + (y - getY()) * cos(facing);
+}
+
 // How the drivetrain turns: both sides (in place), only one side (swing), or along a circle (arc)
 enum turnStyle { POINT_TURN, LEFT_SWING, RIGHT_SWING, ARC };
 
@@ -282,7 +304,9 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
         double current_heading = getInertial();
         double current_error = target - current_heading; // to the real target, not the chaining one
         double gyro_rate = getGyroRate();
-        motion_progress = fabs(current_heading - start_heading);
+        if (request.report_progress) {
+            motion_progress = fabs(current_heading - start_heading);
+        }
 
         if (chaining) {
             // Close enough (or already past it): hand over to the next movement without stopping
@@ -412,9 +436,95 @@ static void driveForward(const MotionRequest &request) {
     chain_forward_end = start_position + target;
 }
 
+// While driving to a point, the robot only counts as finished when it faces the way it is aiming
+// within this many degrees. Otherwise a point right beside the robot is "0 inches ahead" before
+// the robot has even turned towards it.
+const double POINT_FACING_TOLERANCE = 5;
+
+// Drive to a field point, using odometry. The robot keeps aiming at the point while it drives,
+// so it gets there even if it gets bumped or one side is weaker.
+static void driveToPoint(const MotionRequest &request) {
+    double start_time = Brain.timer(timeUnits::msec);
+    long delay = 10;
+    PIDController pid(FORWARD_KP, FORWARD_KI, FORWARD_KD, FORWARD_INTEGRAL_RANGE);
+    SettleCheck settle(FORWARD_SETTLE_MS);
+    bool continuing = last_was_chain; // the robot is still moving from a chained movement
+    double tx = request.target_x;
+    double ty = request.target_y;
+    double start_x = getX();
+    double start_y = getY();
+    double flip = request.backwards ? 180 : 0; // backwards: the back of the robot points at the target
+    double heading = getInertial();
+    double aim = heading + wrap180(headingTo(tx, ty) + flip - heading); // the heading to drive along
+    double first_error = distanceAhead(tx, ty, heading);
+    pid.reset(first_error);
+    telemetryStart("PID_drive_to_point", hypot(tx - start_x, ty - start_y), first_error, request.timeout_ms);
+
+    while (!cancel_requested) {
+        double time = Brain.timer(timeUnits::msec) - start_time;
+        if (time > request.timeout_ms) {
+            break; // took too long, give up so autonomous can continue
+        }
+
+        heading = getInertial();
+        double ahead = distanceAhead(tx, ty, heading); // what is left to drive (negative = drove past it)
+        double distance = hypot(tx - getX(), ty - getY());
+        double motor_rate = getMotorRate();
+        motion_progress = hypot(getX() - start_x, getY() - start_y);
+
+        // Keep aiming at the point, until we are close
+        if (distance > POINT_AIM_DISTANCE) {
+            aim = heading + wrap180(headingTo(tx, ty) + flip - heading);
+        }
+        double aim_error = aim - heading;
+
+        // Finished: nothing left to drive, stopped, and facing the way we aim. (The robot can't drive
+        // sideways, so a little sideways miss is fine; the straight-line distance could never settle.)
+        bool inside = fabs(ahead) < request.error_tolerance && fabs(motor_rate) < request.speed_tolerance
+                      && fabs(aim_error) < POINT_FACING_TOLERANCE;
+        if (settle.update(inside, time)) {
+            break;
+        }
+
+        double power = cap(pid.compute(ahead, motor_rate), request.max_speed);
+        if (!continuing) {
+            power = startRamp(power, time); // no ramp if we are already moving
+        }
+        // Not facing the point yet? Drive slower until the robot has turned towards it
+        power *= fmax(cos(aim_error * M_PI / 180), 0);
+
+        double heading_correction = aim_error * POINT_HEADING_KP;
+        moveLimited(power + heading_correction, power - heading_correction, request.max_speed);
+        telemetryUpdate(time, ahead, motor_rate, power, pid);
+        vexDelay(delay);
+    }
+    endMovement(false, aim);
+    chain_was_forward = false;
+}
+
 static void runMotion(const MotionRequest &request) {
     if (request.type == MOTION_FORWARD) {
         driveForward(request);
+    } else if (request.type == MOTION_TO_POINT) {
+        double start_time = Brain.timer(timeUnits::msec);
+        double heading = getInertial();
+        double flip = request.backwards ? 180 : 0;
+        double turn_needed = wrap180(headingTo(request.target_x, request.target_y) + flip - heading);
+        double distance = hypot(request.target_x - getX(), request.target_y - getY());
+        if (fabs(turn_needed) > POINT_TURN_FIRST_ANGLE && distance > POINT_AIM_DISTANCE) {
+            // Facing far away from the point: turn towards it first. The turn is chained (doesn't
+            // stop at the end), the drive keeps correcting the aim anyway.
+            MotionRequest turn = makeRequest(MOTION_TURN, heading + turn_needed, 0, 0, request.timeout_ms, request.max_speed);
+            turn.exit_range = 5;
+            turn.report_progress = false; // waitUntilTraveled counts inches driven, not degrees turned
+            PIDController pid(TURN_KP, TURN_KI, TURN_KD, TURN_INTEGRAL_RANGE);
+            turnToHeading(turn, pid, POINT_TURN, "PID_drive_to_point (turn)");
+        }
+        if (!cancel_requested) {
+            MotionRequest drive = request;
+            drive.timeout_ms = request.timeout_ms - (Brain.timer(timeUnits::msec) - start_time);
+            driveToPoint(drive);
+        }
     } else if (request.type == MOTION_TURN || (request.type == MOTION_ARC && fabs(request.radius) < 1)) {
         // (an arc with radius 0 is a turn in place)
         PIDController pid(TURN_KP, TURN_KI, TURN_KD, TURN_INTEGRAL_RANGE);
@@ -458,6 +568,10 @@ static MotionRequest makeRequest(motionType type, double target, double error_to
     request.max_speed = max_speed;
     request.radius = 0;
     request.exit_range = 0;
+    request.target_x = 0;
+    request.target_y = 0;
+    request.backwards = false;
+    request.report_progress = true;
     return request;
 }
 
@@ -500,14 +614,7 @@ static double relativeTarget(double degrees) {
 
 static double shortestTarget(double heading) {
     double current = currentHeadingForTurns();
-    // How far to turn, squeezed into -180 to 180 so we always go the short way
-    double difference = fmod(heading - current, 360);
-    if (difference > 180) {
-        difference -= 360;
-    } else if (difference < -180) {
-        difference += 360;
-    }
-    return current + difference;
+    return current + wrap180(heading - current); // always the short way around
 }
 
 static motionType swingType(driveSide moving_side) {
@@ -551,6 +658,24 @@ void PID_arc_async(double target, double radius, double error_tolerance, double 
     startMotion(makeArcRequest(target, radius, error_tolerance, speed_tolerance, timeout_ms, max_speed));
 }
 
+void PID_turn_to_point_async(double x, double y, double error_tolerance, double speed_tolerance,
+                             double timeout_ms, double max_speed, bool backwards) {
+    startOdometry();
+    waitUntilDone(); // aim from where the robot is after the previous movement ends
+    double flip = backwards ? 180 : 0;
+    PID_turn_async(shortestTarget(headingTo(x, y) + flip), error_tolerance, speed_tolerance, timeout_ms, max_speed);
+}
+
+void PID_drive_to_point_async(double x, double y, double error_tolerance, double speed_tolerance,
+                              double timeout_ms, double max_speed, bool backwards) {
+    startOdometry();
+    MotionRequest request = makeRequest(MOTION_TO_POINT, 0, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+    request.target_x = x;
+    request.target_y = y;
+    request.backwards = backwards;
+    startMotion(request);
+}
+
 // ---------- Start a movement and wait until it is finished ----------
 
 void PID_forward(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
@@ -582,6 +707,18 @@ void PID_swing(double target, driveSide moving_side, double error_tolerance, dou
 void PID_arc(double target, double radius, double error_tolerance, double speed_tolerance,
              double timeout_ms, double max_speed) {
     PID_arc_async(target, radius, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+    waitUntilDone();
+}
+
+void PID_turn_to_point(double x, double y, double error_tolerance, double speed_tolerance,
+                       double timeout_ms, double max_speed, bool backwards) {
+    PID_turn_to_point_async(x, y, error_tolerance, speed_tolerance, timeout_ms, max_speed, backwards);
+    waitUntilDone();
+}
+
+void PID_drive_to_point(double x, double y, double error_tolerance, double speed_tolerance,
+                        double timeout_ms, double max_speed, bool backwards) {
+    PID_drive_to_point_async(x, y, error_tolerance, speed_tolerance, timeout_ms, max_speed, backwards);
     waitUntilDone();
 }
 

@@ -5,6 +5,8 @@
 // - Each side of the drivetrain responds to its voltage like a real motor (speed follows the
 //   command with a 0.1 s delay). Ports 1-3 are the left side, 4-6 the right side.
 // - The inertial sensor reports the heading worked out from the two wheel speeds.
+// - Rotation sensors act as tracking wheels: the test tells the simulator which ports they are on
+//   and where they sit on the robot. bump() shoves the robot sideways, like another robot would.
 // - Tasks are real threads, but only one runs at a time and they only switch inside vexDelay /
 //   wait, like on the V5 brain. Time is simulated, so the tests run much faster than real time.
 #include <cmath>
@@ -27,7 +29,20 @@ inline double gain[2] = {1, 1};    // side strength, to simulate a robot that pu
 inline double peak = 0;            // highest wheel speed seen
 inline double peak_cmd = 0;        // highest commanded power
 inline double x = 0, y = 0;         // field position, heading 0 = +y, clockwise positive
+// Tracking wheels (rotation sensors): which port each is on (-1 = none), where it sits, how far it rolled
+inline int fwd_wheel_port = -1, side_wheel_port = -1;
+inline double fwd_wheel_offset = 0;  // inches to the right of the robot's center
+inline double side_wheel_offset = 0; // inches in front of the robot's center
+inline double track_wheel_diam = 2.75;
+inline double fwd_wheel = 0, side_wheel = 0; // inches rolled
 const double MAXV = 70, TAU = 0.1, TRACK = 12;
+inline void step();
+// Another robot shoves ours sideways (positive = to the robot's right) without turning it
+inline void bump(double right) {
+    x += right * cos(heading * M_PI / 180);
+    y -= right * sin(heading * M_PI / 180);
+    side_wheel += right;
+}
 inline void step() {               // 1 ms
     for (int s = 0; s < 2; s++) {
         double target = mode[s] == 0 ? cmd[s] / 100 * MAXV * gain[s] : 0;
@@ -41,11 +56,16 @@ inline void step() {               // 1 ms
     double vc = (v[0] + v[1]) / 2;
     x += vc * sin(heading * M_PI / 180) * 0.001;
     y += vc * cos(heading * M_PI / 180) * 0.001;
+    // A wheel to the right of the center rolls backwards when the robot turns clockwise,
+    // a wheel in front of the center rolls to the right
+    double turn_rad = rate * M_PI / 180 * 0.001;
+    fwd_wheel += vc * 0.001 - fwd_wheel_offset * turn_rad;
+    side_wheel += side_wheel_offset * turn_rad;
     t_ms += 1;
 }
 }
 namespace vex {
-enum { PORT1=0,PORT2,PORT3,PORT4,PORT5,PORT6,PORT7 };
+enum { PORT1=0,PORT2,PORT3,PORT4,PORT5,PORT6,PORT7,PORT8,PORT9,PORT10 };
 enum gearSetting { ratio36_1, ratio18_1, ratio6_1 };
 enum class rotationUnits { deg, rev };
 enum class velocityUnits { dps, pct };
@@ -75,6 +95,11 @@ struct motor { int side; motor(int port, gearSetting, bool) : side(port >= 3 ? 1
   void spin(directionType, double mv, voltageUnits){ sim::mode[side] = 0; sim::cmd[side] = fmax(-100, fmin(100, mv / 120)); sim::peak_cmd = fmax(sim::peak_cmd, fabs(sim::cmd[side])); } };
 struct motor_group { motor *m; template<class... M> motor_group(motor &first, M&...) : m(&first) {}
   void stop(brakeType b){ m->stop(b); } void spin(directionType d, double x, voltageUnits u){ m->spin(d, x, u); } };
+struct rotation { int port; bool reversed;
+  rotation(int p, bool r = false) : port(p), reversed(r) {}
+  double position(rotationUnits){
+    double inches = port == sim::fwd_wheel_port ? sim::fwd_wheel : port == sim::side_wheel_port ? sim::side_wheel : 0;
+    return inches / (M_PI * sim::track_wheel_diam) * (reversed ? -1 : 1); } };
 struct inertial { inertial(int){} double rotation(rotationUnits){ return sim::heading; }
   double gyroRate(axisType, rateUnits){ return -sim::rate; } // counter-clockwise positive, like the real IMU (assumed)
   void calibrate(){} bool isCalibrating(){ return false; }

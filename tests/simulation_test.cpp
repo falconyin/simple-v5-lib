@@ -406,11 +406,19 @@ int main() {
     check("forward after a chained turn still starts gently", power_after_turn < 50, power_after_turn, 50);
     reset();
     PID_drive_to_point_async(48, 0, 0.5, 0.2); // turns 90 degrees first, chained into the drive
-    while (getInertial() < 85) vexDelay(5);    // that turn hands over 5 degrees early
+    while (getInertial() < 85 && isMoving()) vexDelay(5); // that turn hands over 5 degrees early
+    bool turn_handed_over = isMoving();
     vexDelay(50);
     double power_after_point_turn = (sim::cmd[0] + sim::cmd[1]) / 2;
     waitUntilDone();
-    check("  so does a drive to point after its turn", power_after_point_turn < 50, power_after_point_turn, 50);
+    check("  so does a drive to point after its turn", turn_handed_over && power_after_point_turn < 50, turn_handed_over, power_after_point_turn);
+    reset();
+    PID_forward_chain(24, 3);
+    PID_forward_async(-24, 0.3, 0.2); // still rolling forward, but this one goes backwards
+    vexDelay(50);
+    double power_reversing = (sim::cmd[0] + sim::cmd[1]) / 2;
+    waitUntilDone();
+    check("  so does a backward drive after a chained forward", power_reversing > -50, power_reversing, -50);
     reset();
     PID_forward_chain(24, 3);
     double handover_speed = getMotorRate();

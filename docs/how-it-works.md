@@ -209,9 +209,10 @@ A chained movement (`PID_forward_chain`, `PID_turn_chain`, ...) doesn't stop:
    much near the real target.
 2. As soon as the robot is within `exit_range` of the real target, it hands over to the next
    movement **with the motors still running**.
-3. If the robot is still *driving* (faster than `ALREADY_DRIVING_SPEED`), the next movement
-   skips the gentle start (`startRamp`). After a chained turn in place the robot is turning but
-   not driving, so a drive after it still starts gently, or the wheels would slip.
+3. If the robot is still *driving* the way the next movement goes (faster than
+   `ALREADY_DRIVING_SPEED`), that movement skips the gentle start (`startRamp`). After a chained
+   turn in place the robot is turning but not driving, and a backward drive after a forward one
+   has to reverse first: both still start gently, or the wheels would slip.
 
 Some details that keep chains exact:
 

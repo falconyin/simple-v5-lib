@@ -259,11 +259,12 @@ static double startRamp(double power, double time_ms) {
 // Faster than this (inches/s), the robot counts as already driving: no gentle start needed
 const double ALREADY_DRIVING_SPEED = 5;
 
-// Is the robot still driving from a chained movement? Then the next movement skips the gentle
-// start. Only the driving speed counts: after a chained turn in place the robot is turning,
-// but not driving yet, so full power right away would make the wheels slip.
-static bool alreadyDriving() {
-    return last_was_chain && fabs(getMotorRate()) > ALREADY_DRIVING_SPEED;
+// Is the robot still driving from a chained movement, the same way the next movement goes
+// (travel: +1 forward, -1 backwards)? Then that movement skips the gentle start. Only the
+// driving speed counts: after a chained turn in place the robot is turning, but not driving yet,
+// and when it rolls the other way it must reverse. Full power right away would make the wheels slip.
+static bool alreadyDriving(double travel) {
+    return last_was_chain && getMotorRate() * travel > ALREADY_DRIVING_SPEED;
 }
 
 // Called at the end of every movement
@@ -317,7 +318,8 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
     double start_time = Brain.timer(timeUnits::msec);
     long delay = 10;
     SettleCheck settle(TURN_SETTLE_MS);
-    bool driving = alreadyDriving(); // still driving from a chained movement: no gentle start
+    // (arcs only) still driving along the circle from a chained movement: no gentle start
+    bool driving = alreadyDriving(getSign(request.radius));
     double start_heading = getInertial();
     double target = request.target;
     double direction = getSign(target - start_heading); // +1 = this turn goes clockwise
@@ -428,9 +430,9 @@ static void driveForward(const MotionRequest &request) {
     PIDController pid = makePID(request.forward_gains, FORWARD_INTEGRAL_RANGE);
     SettleCheck settle(FORWARD_SETTLE_MS);
     bool continuing = last_was_chain; // the robot is still moving from a chained movement
-    bool driving = alreadyDriving();  // ...and driving, not only turning: no gentle start
     double target = request.target;
     double direction = getSign(target);
+    bool driving = alreadyDriving(direction); // ...and driving this way, not only turning: no gentle start
     // Measure the distance from where we start. Right after a chained PID_forward, measure from where
     // that one's target was instead: it handed over a bit early, and those inches must not get lost.
     double start_position = (continuing && chain_was_forward) ? chain_forward_end.load() : getPosition();
@@ -510,7 +512,6 @@ static void driveToPoint(const MotionRequest &request) {
     long delay = 10;
     PIDController pid = makePID(request.forward_gains, FORWARD_INTEGRAL_RANGE);
     SettleCheck settle(FORWARD_SETTLE_MS);
-    bool driving = alreadyDriving(); // still driving from a chained movement: no gentle start
     double tx = request.target_x;
     double ty = request.target_y;
     double start_x = getX();
@@ -520,6 +521,7 @@ static void driveToPoint(const MotionRequest &request) {
     double aim = heading + wrap180(headingTo(tx, ty) + flip - heading); // the heading to drive along
     double first_error = distanceAhead(tx, ty, heading);
     double travel = request.backwards ? -1 : 1; // the way the robot drives: +1 forward, -1 backwards
+    bool driving = alreadyDriving(travel); // still driving this way from a chained movement: no gentle start
 
     // Chaining: aim a bit past the point, so the robot is still moving when it gets there
     bool chaining = request.exit_range > 0;

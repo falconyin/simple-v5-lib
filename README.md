@@ -24,7 +24,8 @@ This library uses simple language and easy logic. It helps you get the hang of i
 * **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes. `PID_drive_to_point_chain` turns a list of field points into one smooth path.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
 * **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal.
-* **Tuning from the controller:** `tuneWithController()` changes kP, kI and kD with the controller buttons and tries them right away, no re-downloading.
+* **Tuning from the controller:** `tuneWithController()` changes kP, kI and kD with the controller buttons and tries them right away, no re-downloading. The gains are saved on the SD card, and `loadGainsFromSDCard()` brings them back in the next run.
+* **SD card logging:** `logToSDCard(true)` saves every movement's data in a CSV file, to look at after a match.
 * **Robot setup checks:** `checkDevices()` finds unplugged or overheating devices, `testDrivetrain()` finds motors set to the wrong direction, and `measureTrackWidth()` / `measureWheelSize()` measure your robot for `simpleV5LibConfig.h`.
 * **Driver control:** `tankDrive()` and `arcadeDrive()`, with a joystick deadband and curve.
 * **Autonomous selector:** pick your routine on the Brain screen or the controller before the match.
@@ -83,7 +84,9 @@ MovementResult r = lastMovementResult();   // r.time_ms, r.error, r.overshoot, r
 // Tuning
 graphOnScreen(true);   // error and power as a graph on the Brain screen
 logToTerminal(true);   // numbers in the terminal, to paste into a spreadsheet
-tuneWithController();  // change kP/kI/kD with the controller buttons and try them (B ends it)
+tuneWithController();  // change kP/kI/kD with the controller buttons and try them (B ends it and saves them on the SD card)
+loadGainsFromSDCard(); // at the start of your program: use the gains saved on the SD card
+logToSDCard(true);     // every movement's data into pidlog1.csv, pidlog2.csv, ... on the SD card
 turnGains.kp = 3.5;    // or change the gains in code (also forwardGains, swingGains, arcGains)
 
 // Robot setup (see examples/robotSetup)

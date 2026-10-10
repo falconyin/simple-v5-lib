@@ -14,6 +14,9 @@
 //   wait, like on the V5 brain. Time is simulated, so the tests run much faster than real time.
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <map>
+#include <string>
 #include <cstdio>
 #include <mutex>
 #include <condition_variable>
@@ -110,7 +113,23 @@ inline const color color::red{1}, color::green{2}, color::white{3};
 struct screen { int lines = 0, clears = 0; void clearScreen(){ clears++; } void setCursor(int,int){} int print(const char*, ...){return 0;}
   int printAt(int,int,const char*, ...){return 0;} int printAt(int,int,bool,const char*, ...){return 0;} void setPenColor(const color&){} void drawLine(int,int,int x2,int y2){ lines++; if (x2<0||x2>480||y2<0||y2>240) printf("OFFSCREEN %d %d\n", x2, y2); }
   bool pressing(){return false;} int xPosition(){return 0;} void clearLine(int){} };
-struct brain { double timer(timeUnits u){ return u == timeUnits::msec ? sim::t_ms : sim::t_ms / 1000; } screen Screen; };
+// The SD card keeps its files in memory. writes counts the writes, and fastest_write_speed is the
+// fastest a wheel was moving during any write (the library should only write when the robot stopped).
+struct sdcard { bool inserted = false; int writes = 0; double fastest_write_speed = 0; std::map<std::string, std::string> files;
+  bool isInserted(){ return inserted; }
+  bool exists(const char *name){ return inserted && files.count(name) > 0; }
+  int32_t size(const char *name){ return exists(name) ? (int32_t)files[name].size() : 0; }
+  int32_t write(const char *name, uint8_t *buffer, int32_t len, bool append){
+    if (!inserted) return 0;
+    writes++; fastest_write_speed = fmax(fastest_write_speed, fmax(fabs(sim::v[0]), fabs(sim::v[1])));
+    std::string &file = files[name]; if (!append) file.clear();
+    file.append((const char*)buffer, len); return len; }
+  int32_t savefile(const char *name, uint8_t *buffer, int32_t len){ return write(name, buffer, len, false); }
+  int32_t appendfile(const char *name, uint8_t *buffer, int32_t len){ return write(name, buffer, len, true); }
+  int32_t loadfile(const char *name, uint8_t *buffer, int32_t len){
+    if (!exists(name)) return 0;
+    int32_t n = (int32_t)fmin(len, files[name].size()); memcpy(buffer, files[name].data(), n); return n; } };
+struct brain { double timer(timeUnits u){ return u == timeUnits::msec ? sim::t_ms : sim::t_ms / 1000; } screen Screen; sdcard SDcard; };
 struct axis { int value = 0; int position(percentUnits){ return value; } };
 struct button { bool down = false; bool pressing(){ return down; } };
 struct controller { axis Axis1, Axis2, Axis3, Axis4; button ButtonLeft, ButtonRight, ButtonUp, ButtonDown, ButtonA, ButtonB, ButtonX, ButtonY;

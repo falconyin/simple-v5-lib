@@ -132,9 +132,15 @@ static void showFinalGains() {
         Brain.Screen.print("%-8s kP %-7g kI %-7g kD %g", MODE_NAMES[mode], gains.kp, gains.ki, gains.kd);
     }
     fflush(stdout);
+    // Keep them for the next program run (loadGainsFromSDCard)
+    bool saved = saveGainsToSDCard();
+    Brain.Screen.setCursor(8, 1);
+    Brain.Screen.print("%s", saved ? "Saved on the SD card: loadGainsFromSDCard() loads them."
+                                   : "Not saved (no SD card?): lost when the program stops!");
     Controller.Screen.clearScreen();
     showLine(1, "Done: gains are on");
     showLine(2, "the Brain screen");
+    showLine(3, saved ? "Saved on SD card" : "NOT saved: no card?");
 }
 
 void tuneWithController() {

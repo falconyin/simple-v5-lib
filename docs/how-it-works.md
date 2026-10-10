@@ -330,8 +330,30 @@ Tune turns first (they are easiest to see), then forward, then swings and arcs.
    degrees or an inch or two).
 5. **Test with other distances**: a gain that's great for 90° might overshoot at 180°. Try a
    small and a big movement.
-6. **Copy the gains** into `simpleV5LibConfig.h`: the tuner's changes are lost when the
-   program stops.
+6. **Keep the gains**: with an SD card in the Brain, B saves them in `pid_gains.txt`, and
+   `loadGainsFromSDCard()` at the start of your program loads them in the next run. Without a
+   card, copy them into `simpleV5LibConfig.h`: the tuner's changes are lost when the program stops.
+
+### What the gains file remembers
+
+Each line of `pid_gains.txt` holds the tuned gain and what `simpleV5LibConfig.h` said when it
+was saved: `TURN_KP = 3.5 config 3.2`. That solves a confusing problem: you tune with the
+controller, later change `TURN_KP` in the config by hand, and nothing happens, because the old
+file on the card overrides it. When loading, a gain whose config value has changed since the
+file was saved comes from the config: it is the newer decision.
+
+### Logging to the SD card
+
+`logToSDCard(true)` writes the same numbers as `logToTerminal`, plus where the robot was (x, y,
+heading), into `pidlog1.csv`, `pidlog2.csv`, ... (a new file every program run). Then you can
+see what went wrong in a match, where no USB cable is connected.
+
+Writing to an SD card is slow: one write can take several milliseconds. If the motion task
+wrote every line right away, each write would hold up the PID loop and the robot would steer
+worse. So the lines wait in memory (`sd_buffer` in `telemetry.cpp`, room for about 10 seconds
+of movements), and the motion task writes them out when no movement is running and the robot has
+stopped (`telemetryWriteSDCard`). Only a single movement longer than the buffer is written in the
+middle.
 
 | What you see | What to change |
 | --- | --- |

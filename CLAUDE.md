@@ -78,7 +78,9 @@ so C++14/17 features, exceptions, and RTTI are off limits in `src/` even though 
 C++17. VEXcode's `vex.h` `#define`s `repeat` and `waitUntil`, so neither may be used as a name (examples
 use a plain `while` loop instead of `waitUntil`). The real SDK has a `Brain.Screen.printAt` overload with
 an extra `bool` (opaque) argument, which makes `printAt(x, y, "fmt", args...)` ambiguous: write
-`printAt(x, y, true, "fmt", ...)`. The simulator has this overload too, but only the SDK build catches it.
+`printAt(x, y, true, "fmt", ...)`. The simulator declares both overloads too, so `CXX=clang++
+tests/run_tests.sh` and the SDK build reject the ambiguous call, but CI's default g++ simulator build
+only warns about it.
 
 ## Architecture
 
@@ -152,6 +154,8 @@ to Brain screen, controller and terminal; `measureTrackWidth` consumes `measureW
   `tuneWithController()` saves when B is pressed.
 - `logToSDCard` lines are formatted into a 256-byte temp (a line that doesn't fit is dropped) and kept in
   a 32 KB RAM buffer. Card writes are slow and would stall a PID loop, so `motionLoop` calls
-  `telemetryWriteSDCard()` only while idle *and* no chained movement is pending. One failed write stops
+  `telemetryWriteSDCard()` while idle *and* no chained movement is pending. The one exception: if a long
+  movement fills the buffer, `telemetryUpdate()` writes it out immediately, stalling that movement's
+  PID loop for the length of the write. One failed write stops
   logging, including for the current movement. Log files take the first free number, not the highest
   (finding the highest would mean an `exists()` per possible number).

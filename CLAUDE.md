@@ -48,6 +48,17 @@ against a `sed`-patched copy in `build/tracking_include/` that enables tracking 
 greps the patched file and fails loudly if the `sed` didn't match — so renaming or reformatting the
 `TRACKING_*` constants in the config breaks the second run and the script must be updated too.
 
+New tests are mutation-checked: break the code on purpose and confirm the test fails (the first tests for
+chained drive-to-point missed 5 of 6 such mutations). Timing traps in the cooperative simulator:
+- To test the per-movement gain snapshot, change the gains right after the `_async` call; any later and
+  the movement has already copied them.
+- Back-to-back chained calls never reach `motionLoop`'s idle branch. To test something that runs only
+  while idle (SD-card writes), put user code such as `vexDelay(40)` between them.
+- A chained movement hands over while the robot is still rolling, so compute expected values (e.g. a
+  `turn_to_point_chain` heading) from the pose at hand-over, not from before the previous movement.
+
+If a branch has no PR yet, CI can be run on it by triggering `build.yml` manually (`workflow_dispatch`).
+
 ## The two `vex.h` shims
 
 The library only ever includes `"vex.h"`, which it never ships. Both builds supply their own:
@@ -64,7 +75,10 @@ The library only ever includes `"vex.h"`, which it never ships. Both builds supp
 Consequences for any new code: if you use a VEX API the simulator lacks, add it to `tests/sim/vex.h`.
 The SDK build compiles with `-std=gnu++11 -fno-exceptions -fno-rtti` and treats warnings seriously,
 so C++14/17 features, exceptions, and RTTI are off limits in `src/` even though the test build uses
-C++17. VEXcode's `vex.h` `#define`s `repeat`, so no member or variable may be named `repeat`.
+C++17. VEXcode's `vex.h` `#define`s `repeat` and `waitUntil`, so neither may be used as a name (examples
+use a plain `while` loop instead of `waitUntil`). The real SDK has a `Brain.Screen.printAt` overload with
+an extra `bool` (opaque) argument, which makes `printAt(x, y, "fmt", args...)` ambiguous: write
+`printAt(x, y, true, "fmt", ...)`. The simulator has this overload too, but only the SDK build catches it.
 
 ## Architecture
 
@@ -129,3 +143,15 @@ driven by `telemetryStart`/`telemetryUpdate` calls inside the motion loops), `co
 (`tuneWithController()`), `autonSelector.cpp` (background selector task, max 10 routines),
 `robotSetup.cpp` (`checkDevices`, `testDrivetrain`, `measureTrackWidth`, `measureWheelSize` — all report
 to Brain screen, controller and terminal; `measureTrackWidth` consumes `measureWheelSize`'s in-run result).
+
+**SD card** (`src/sdCard.cpp`, plus the `logToSDCard` part of `telemetry.cpp`):
+- `saveGainsToSDCard`/`loadGainsFromSDCard` write one line per gain with the config value it was saved
+  against (`TURN_KP = 3.5 config 3.2`). On load, a gain whose config value has changed since keeps the
+  config value, so an old file on the card can't silently override an edit to the config. A file over
+  2 KB is ignored entirely, since a truncated line could lose its `config` part and bypass that rule.
+  `tuneWithController()` saves when B is pressed.
+- `logToSDCard` lines are formatted into a 256-byte temp (a line that doesn't fit is dropped) and kept in
+  a 32 KB RAM buffer. Card writes are slow and would stall a PID loop, so `motionLoop` calls
+  `telemetryWriteSDCard()` only while idle *and* no chained movement is pending. One failed write stops
+  logging, including for the current movement. Log files take the first free number, not the highest
+  (finding the highest would mean an `exists()` per possible number).

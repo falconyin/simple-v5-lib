@@ -50,13 +50,14 @@ static double smaller(double value) {
 
 // Turns a button into "presses": true once when it goes down. With repeat, also true again
 // every 0.2 s while it is held down for longer than 0.5 s.
+// (not called "repeat": VEXcode's vex.h already uses that name for a macro)
 struct ButtonPress {
-    bool repeat;
+    bool auto_repeat;
     bool was_down = false;
     double down_since = 0;
     double last_repeat = 0;
 
-    ButtonPress(bool repeat) : repeat(repeat) {}
+    ButtonPress(bool auto_repeat) : auto_repeat(auto_repeat) {}
 
     bool update(bool down, double now_ms) {
         bool pressed = false;
@@ -64,7 +65,7 @@ struct ButtonPress {
             pressed = true;
             down_since = now_ms;
             last_repeat = now_ms;
-        } else if (down && repeat && now_ms - down_since > 500 && now_ms - last_repeat >= 200) {
+        } else if (down && auto_repeat && now_ms - down_since > 500 && now_ms - last_repeat >= 200) {
             pressed = true;
             last_repeat = now_ms;
         }

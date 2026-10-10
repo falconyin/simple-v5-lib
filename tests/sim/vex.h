@@ -184,3 +184,12 @@ struct task { task(int (*fn)()) {
 struct competition { void autonomous(void(*)()){} void drivercontrol(void(*)()){} };
 inline void wait(double t, timeUnits u){ vexDelay((uint32_t)(u == timeUnits::msec ? t : t * 1000)); }
 }
+// The macros a VEXcode project's vex.h defines (see ci/vex.h), so a name that clashes with them
+// fails here too, not only in the VEX SDK build
+#define waitUntil(condition)                                                   \
+  do {                                                                         \
+    vex::wait(5, vex::msec);                                                   \
+  } while (!(condition))
+
+#define repeat(iterations)                                                     \
+  for (int iterator = 0; iterator < iterations; iterator++)

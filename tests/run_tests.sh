@@ -2,7 +2,8 @@
 # Build the library against the simulator (tests/sim/vex.h) and run the tests, twice:
 #   1. with the settings from include/simpleV5LibConfig.h (no tracking wheels)
 #   2. with tracking wheels turned on, using an edited copy of the config
-# Needs a C++17 compiler (g++ or clang++). Usage: tests/run_tests.sh
+# Needs a C++17 compiler (g++ or clang++; on Windows, a MinGW g++ such as w64devkit, run from Git Bash:
+# CXX=/d/Tools/w64devkit/bin/g++ tests/run_tests.sh). Usage: tests/run_tests.sh
 set -e
 cd "$(dirname "$0")/.."
 CXX="${CXX:-g++}"

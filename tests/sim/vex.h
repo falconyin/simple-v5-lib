@@ -12,6 +12,7 @@
 //   and where they sit on the robot. bump() shoves the robot sideways, like another robot would.
 // - Tasks are real threads, but only one runs at a time and they only switch inside vexDelay /
 //   wait, like on the V5 brain. Time is simulated, so the tests run much faster than real time.
+#define _USE_MATH_DEFINES // M_PI: the VEX SDK has it, but MinGW only declares it with this
 #include <cmath>
 #include <cstdint>
 #include <cstring>

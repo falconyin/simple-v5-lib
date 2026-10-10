@@ -8,22 +8,37 @@
 # and the ARM linker (arm-none-eabi-ld / arm-none-eabi-objcopy, Ubuntu: binutils-arm-none-eabi).
 # Usage: ci/build_with_vex_sdk.sh             (uses the newest SDK)
 #        VEX_SDK_VERSION=V5_20240802_15_00_00 ci/build_with_vex_sdk.sh
+#
+# With the VEX VS Code extension installed, its SDK and tools can be used instead, without
+# downloading anything (then curl, unzip and python3 aren't needed): see ci/build_local_windows.sh,
+# or set VEX_SDK_HOME to the folder holding the V5_... SDK folders, plus CXX, LD and OBJCOPY.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CDN="https://content.vexrobotics.com/vexos/public/V5/vscode/sdk/cpp"
-SDK_DIR="build/vex-sdk"
 CXX="${CXX:-clang++}"
 
-# ---------- Download the SDK ----------
-mkdir -p "$SDK_DIR"
-curl -fsSL "$CDN/manifest.json" -o "$SDK_DIR/manifest.json"
-VERSION="${VEX_SDK_VERSION:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["latest"])' "$SDK_DIR/manifest.json")}"
-echo "VEX SDK version: $VERSION"
-if [ ! -d "$SDK_DIR/$VERSION" ]; then
-    curl -fsSL "$CDN/$VERSION.zip" -o "$SDK_DIR/sdk.zip"
-    unzip -q -o "$SDK_DIR/sdk.zip" -d "$SDK_DIR"
-    rm "$SDK_DIR/sdk.zip"
+if [ -n "${VEX_SDK_HOME:-}" ]; then
+    # ---------- Use an SDK that is already installed ----------
+    SDK_DIR="$VEX_SDK_HOME"
+    VERSION="${VEX_SDK_VERSION:-$(ls "$SDK_DIR" 2>/dev/null | grep '^V5_' | sort | tail -1 || true)}"
+    if [ -z "$VERSION" ] || [ ! -d "$SDK_DIR/$VERSION" ]; then
+        echo "No V5 SDK '$VERSION' in $SDK_DIR" >&2
+        exit 1
+    fi
+    echo "VEX SDK version: $VERSION (installed)"
+else
+    # ---------- Download the SDK ----------
+    SDK_DIR="build/vex-sdk"
+    mkdir -p "$SDK_DIR"
+    curl -fsSL "$CDN/manifest.json" -o "$SDK_DIR/manifest.json"
+    VERSION="${VEX_SDK_VERSION:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["latest"])' "$SDK_DIR/manifest.json")}"
+    echo "VEX SDK version: $VERSION"
+    if [ ! -d "$SDK_DIR/$VERSION" ]; then
+        curl -fsSL "$CDN/$VERSION.zip" -o "$SDK_DIR/sdk.zip"
+        unzip -q -o "$SDK_DIR/sdk.zip" -d "$SDK_DIR"
+        rm "$SDK_DIR/sdk.zip"
+    fi
 fi
 V5="$SDK_DIR/$VERSION/vexv5"
 echo "SDK layout:"
@@ -36,13 +51,20 @@ ls -la "$V5" "$V5/gcc/libs" 2>/dev/null | sed 's/^/  /'
 VEX_INC="$(dirname "$(find "$V5" -name v5_vcs.h | head -1)")"
 # C library headers (newlib: stdio.h next to sys/)
 C_INC="$(dirname "$(dirname "$(find "$V5" -path '*/include/sys/types.h' | grep -v '/c++/' | head -1)")")"
-# C++ library headers (the folder with <vector>), and its ARM-specific bits folder
-CXX_INC="$(dirname "$(find "$V5" -path '*/c++/*' -name vector -type f | head -1)")"
-CXX_ARM_INC="$(dirname "$(dirname "$(find "$CXX_INC" -path '*thumb*' -name c++config.h | head -1)")")"
+# C++ library headers (the folder with <vector>), and its ARM-specific bits folder. Both names exist
+# in several folders (debug/vector, .../thumb/fpu/bits) and find's order differs between systems,
+# so pick the ones VEXcode uses: the shortest path, and armv7-ar/thumb (vex/mkenv.mk).
+CXX_INC="$(dirname "$(find "$V5" -path '*/c++/*' -name vector -type f | awk '{ print length, $0 }' | sort -n | head -1 | cut -d' ' -f2-)")"
+CXX_ARM_INC="$(dirname "$(dirname "$(find "$CXX_INC" -path '*/armv7-ar/thumb/bits/c++config.h' | head -1)")")"
 echo "VEX headers: $VEX_INC"
 echo "C headers:   $C_INC"
 echo "C++ headers: $CXX_INC"
 echo "C++ ARM:     $CXX_ARM_INC"
+# Compiler headers (stddef.h, stdarg.h, ...) that the SDK ships for its own clang. Searched last
+# (-idirafter), so a clang that has its own, like the one in CI, never uses them; the VEX extension's
+# clang has none and needs them.
+CLANG_INC="$(ls -d "$V5"/clang/*/include 2>/dev/null | sort -V | tail -1 || true)"
+echo "clang hdrs:  ${CLANG_INC:-(none)}"
 
 # ---------- Compile ----------
 # Same flags as a VEXcode V5 project (vex/mkenv.mk)
@@ -55,6 +77,9 @@ FLAGS=(
     -nostdinc++ -isystem "$CXX_INC" -isystem "$CXX_ARM_INC" -isystem "$C_INC" -isystem "$VEX_INC"
     -I include -I ci
 )
+if [ -n "$CLANG_INC" ]; then
+    FLAGS+=(-idirafter "$CLANG_INC")
+fi
 
 mkdir -p build/obj
 status=0

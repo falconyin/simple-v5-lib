@@ -29,11 +29,14 @@ tests/run_tests.sh            # build against the simulator and run all tests (n
 CXX=clang++ tests/run_tests.sh
 ci/build_with_vex_sdk.sh      # download the real VEXcode V5 SDK, compile for ARM, link every example
 VEX_SDK_VERSION=V5_20240802_15_00_00 ci/build_with_vex_sdk.sh
+ci/build_local_windows.sh     # the same SDK build on Windows (Git Bash), with the VEX VS Code extension's SDK and tools
 ```
 
-Both are what `.github/workflows/build.yml` runs on every PR. `ci/build_with_vex_sdk.sh` additionally
-needs `clang` (it defaults to `CXX=clang++` and cross-compiles with `-target`, so g++ won't do),
-`curl`, `unzip`, `python3`, and `binutils-arm-none-eabi`.
+`.github/workflows/build.yml` runs `tests/run_tests.sh` (with g++) and `ci/build_with_vex_sdk.sh` on every PR. `ci/build_with_vex_sdk.sh`
+additionally needs `clang` (it defaults to `CXX=clang++` and cross-compiles with `-target`, so g++ won't
+do), `curl`, `unzip`, `python3`, and `binutils-arm-none-eabi`. `ci/build_local_windows.sh` needs none of
+those: it points `build_with_vex_sdk.sh` at the extension's installed SDK (`VEX_SDK_HOME`) and its clang
+8 / `arm-none-eabi-ld` (`CXX`, `LD`, `OBJCOPY`), the same compiler VEXcode itself uses.
 
 There is no test framework and no per-test selection: `tests/simulation_test.cpp` is a single `main()`
 of `check(name, ok, a, b)` calls that print PASS/FAIL and exit with the failure count. To run one

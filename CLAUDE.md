@@ -38,9 +38,13 @@ do), `curl`, `unzip`, `python3`, and `binutils-arm-none-eabi`. `ci/build_local_w
 those: it points `build_with_vex_sdk.sh` at the extension's installed SDK (`VEX_SDK_HOME`) and its clang
 8 / `arm-none-eabi-ld` (`CXX`, `LD`, `OBJCOPY`), the same compiler VEXcode itself uses.
 
-There is no test framework and no per-test selection: `tests/simulation_test.cpp` is a single `main()`
-of `check(name, ok, a, b)` calls that print PASS/FAIL and exit with the failure count. To run one
-case, comment out the others or build that file directly:
+There is no test framework and no per-test selection: `tests/simulation_test.cpp` is one `testX()`
+function per feature, full of `check(name, ok, a, b)` calls that print PASS/FAIL, and a `main()` that
+calls them in order and exits with the failure count. The order matters: every test starts where the
+previous one left the simulated robot (and the noise sequence), and the wheel-size tests must stay
+last. Add a new test to the function for its feature, or a new function called from `main()`. To run
+one group, comment out the other calls in `main()` (later tests may then fail, since they start
+from a different state) and build that file directly:
 
 ```sh
 g++ -std=c++17 -O1 -pthread -I include -I tests/sim src/*.cpp tests/simulation_test.cpp -o build/t && ./build/t

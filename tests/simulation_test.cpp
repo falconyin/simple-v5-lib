@@ -17,6 +17,8 @@ static void check(const char* name, bool ok, double a, double b) {
 static void settle() { stopDriving(); vexDelay(500); }
 // How far odometry's position is from where the simulated robot really is
 static double odometryError() { return hypot(getX() - sim::x, getY() - sim::y); }
+// Stop, and put the robot back at (0, 0) facing 0, in the simulator and in odometry
+static void reset() { settle(); sim::x = 0; sim::y = 0; sim::forgetReadings(); setPose(0, 0, 0); }
 
 // Mechanisms, made outside any function like in a robot program. The simulator treats ports 7-21
 // as mechanism motors; sim:: arrays are indexed by port index (PORT15 = 14).
@@ -38,15 +40,14 @@ static void driveArm(double power, double ms) {
     for (double t = 0; t < ms; t += 20) { arm.manual(power); vexDelay(20); }
 }
 
-int main() {
-    // Tell the simulator where the tracking wheels from simpleV5LibConfig.h are (if any)
+// Tell the simulator where the tracking wheels and distance sensors from simpleV5LibConfig.h are (if any)
+static void setUpSimulator() {
     sim::fwd_wheel_port = TRACKING_FORWARD_PORT;
     sim::fwd_wheel_offset = TRACKING_FORWARD_OFFSET;
     sim::side_wheel_port = TRACKING_SIDEWAYS_PORT;
     sim::side_wheel_offset = TRACKING_SIDEWAYS_OFFSET;
     sim::track_wheel_diam = TRACKING_WHEEL_DIAMETER_INCH;
     printf("tracking wheels: forward port %d, sideways port %d\n", TRACKING_FORWARD_PORT, TRACKING_SIDEWAYS_PORT);
-    // ... and the distance sensors
     struct { int port; double ahead, right, looks; } distance_sensors[] = {
         {DISTANCE_FRONT_PORT, DISTANCE_FRONT_AHEAD, DISTANCE_FRONT_RIGHT, 0},
         {DISTANCE_BACK_PORT, DISTANCE_BACK_AHEAD, DISTANCE_BACK_RIGHT, 180},
@@ -56,13 +57,18 @@ int main() {
     for (auto &s : distance_sensors) {
         if (s.port >= 0) sim::distance_mount[s.port] = {true, s.ahead, s.right, s.looks};
     }
+}
 
-    // A real IMU takes a while to calibrate (sim::real::calibrate_ms), and calibrateInertial waits for it
+// A real IMU takes a while to calibrate (sim::real::calibrate_ms), and calibrateInertial waits for it
+static void testCalibration() {
     double calibrate_start = sim::t_ms;
     calibrateInertial();
     check("calibrateInertial waits for the IMU", sim::t_ms - calibrate_start >= sim::real::calibrate_ms
           && sim::t_ms - calibrate_start < sim::real::calibrate_ms + 50, sim::t_ms - calibrate_start, sim::real::calibrate_ms);
+}
 
+// Forward, backward, turns, swings, and a timeout
+static void testBasicMovements() {
     double t0, d0;
     // forward
     t0 = sim::t_ms; d0 = getPosition();
@@ -112,7 +118,9 @@ int main() {
     // timeout: impossible tolerance
     t0 = sim::t_ms; PID_turn(0, 0.0, 0.0, 800); 
     check("timeout stops impossible turn at ~800ms", sim::t_ms - t0 < 900, sim::t_ms - t0, 800);
-    // driver control
+}
+
+static void testDriverControl() {
     Controller.Axis3.value = 50; Controller.Axis1.value = 0; arcadeDrive();
     // (sim::cmd_in: what the program commanded; sim::cmd is what reaches the motors, a little later with a command delay)
     double *asked = sim::cmd_in.cmd;
@@ -125,9 +133,10 @@ int main() {
     check("tank -100/100", asked[0] == -100 && asked[1] == 100, asked[0], asked[1]);
     Controller.Axis3.value = 0; Controller.Axis1.value = 0; Controller.Axis2.value = 0;
     settle();
+}
 
-    // ---------- async ----------
-    double t1 = sim::t_ms; d0 = getPosition();
+static void testAsync() {
+    double t1 = sim::t_ms, d0 = getPosition();
     PID_forward_async(48, 0.3, 0.2);
     check("async returns right away, isMoving", sim::t_ms - t1 < 1 && isMoving(), sim::t_ms - t1, isMoving());
     waitUntilTraveled(12);
@@ -181,8 +190,9 @@ int main() {
     d0 = getPosition();
     PID_forward(24, 0.3, 0.2); settle();
     check("movement after cancel works", fabs(getPosition() - d0 - 24) < 1, getPosition() - d0, 24);
+}
 
-    // ---------- telemetry ----------
+static void testTelemetry() {
     logToTerminal(true); graphOnScreen(true);
     setHeading(0);
     PID_turn(90, 0.5, 0.2);
@@ -191,11 +201,11 @@ int main() {
     PID_forward(-24, 0.3, 0.2); // graph only
     graphOnScreen(false);
     check("graph cleared for the next movement", Brain.Screen.clears == 2, Brain.Screen.clears, 2);
+}
 
-    // ---------- arcs ----------
-    auto reset = []{ settle(); sim::x = 0; sim::y = 0; sim::forgetReadings(); setPose(0, 0, 0); };
+static void testArcs() {
     reset();
-    t1 = sim::t_ms;
+    double t1 = sim::t_ms;
     PID_arc(90, 24, 0.5, 0.2); settle();
     printf("   arc R24 right: x=%.2f y=%.2f h=%.2f t=%.0f\n", sim::x, sim::y, getInertial(), sim::t_ms - t1);
     check("arc forward right R24 -> heading 90 at (24,24)", fabs(getInertial() - 90) < 1.5 && hypot(sim::x - 24, sim::y - 24) < 1.5, sim::x, sim::y);
@@ -214,9 +224,10 @@ int main() {
     reset();
     PID_arc(90, 0, 0.5, 0.2); settle();
     check("arc radius 0 = turn in place", fabs(getInertial() - 90) < 1.5 && hypot(sim::x, sim::y) < 0.5, getInertial(), hypot(sim::x, sim::y));
+}
 
-    // ---------- chaining ----------
-    reset(); t1 = sim::t_ms;
+static void testChaining() {
+    reset(); double t1 = sim::t_ms;
     PID_forward(24, 0.3, 0.2); PID_turn(90, 0.5, 0.2); PID_forward(24, 0.3, 0.2);
     double normal_time = sim::t_ms - t1;
     reset(); t1 = sim::t_ms;
@@ -272,8 +283,10 @@ int main() {
     PID_forward_chain(24, 3);
     cancelMovement();
     check("cancelMovement after a chain stops the motors", sim::cmd_in.mode[0] == 2 && sim::cmd_in.mode[1] == 2, sim::cmd_in.mode[0], sim::cmd_in.mode[1]);
+}
 
-    // ---------- review fixes ----------
+// max_speed holds for each side, not only for the average
+static void testMaxSpeedPerSide() {
     reset(); sim::gain[1] = 0.7; sim::peak_cmd = 0;
     PID_forward(48, 0.3, 0.2, FORWARD_TIMEOUT_MS, 50); settle();
     sim::gain[1] = 1;
@@ -281,7 +294,9 @@ int main() {
     reset(); sim::peak_cmd = 0;
     PID_arc(90, 6, 0.5, 0.2, FORWARD_TIMEOUT_MS, 30); settle();
     check("tight arc max_speed 30: no side above 30%", sim::peak_cmd <= 30.01 && fabs(getInertial() - 90) < 1.5, sim::peak_cmd, getInertial());
+}
 
+static void testAutonSelector() {
     int tasks_before = sim::next_id;
     addAuton("A", testAuton); addAuton("B", testAuton);
     startAutonSelector(); vexDelay(30);
@@ -291,8 +306,10 @@ int main() {
     check("selector stop/start never makes a second task", sim::next_id - tasks_before == 1, sim::next_id - tasks_before, 1);
     runSelectedAuton();
     check("runSelectedAuton runs the routine", auton_runs == 1, auton_runs, 1);
+}
 
-    // ---------- odometry ----------
+// Odometry, and turning to a point
+static void testOdometry() {
     reset();
     PID_forward(48, 0.3, 0.2); PID_turn(90, 0.5, 0.2); PID_arc(180, 24, 0.5, 0.2);
     PID_swing(90, LEFT_SIDE, 0.5, 0.2); PID_forward(-24, 0.3, 0.2); settle();
@@ -315,7 +332,9 @@ int main() {
     reset();
     PID_turn_to_point(0, 24, 0.5, 0.2, TURN_TIMEOUT_MS, 100, true); settle();
     check("turn to point (0, 24) backwards -> facing 180", fabs(fabs(getInertial()) - 180) < 1.5, getInertial(), 180);
+}
 
+static void testDriveToPoint() {
     reset();
     PID_drive_to_point(24, 24, 0.5, 0.2); settle();
     check("drive to point (24, 24)", hypot(sim::x - 24, sim::y - 24) < 1, sim::x, sim::y);
@@ -363,10 +382,11 @@ int main() {
     waitUntilTraveled(12);
     check("  counts inches, not the degrees of the first turn", hypot(sim::x, sim::y) >= 12, hypot(sim::x, sim::y), 12);
     waitUntilDone();
+}
 
-    // ---------- Chained drive to point ----------
+static void testChainedDriveToPoint() {
     // A path with three 90 degree corners
-    reset(); t1 = sim::t_ms;
+    reset(); double t1 = sim::t_ms;
     PID_drive_to_point(0, 24, 0.5, 0.2); PID_drive_to_point(24, 24, 0.5, 0.2);
     PID_drive_to_point(24, 48, 0.5, 0.2); PID_drive_to_point(48, 48, 0.5, 0.2);
     double normal_points = sim::t_ms - t1;
@@ -430,8 +450,10 @@ int main() {
     PID_turn_to_point_chain(24, 48, 10);
     PID_forward(10, 0.3, 0.2);
     check("turn to point chain: forward keeps facing the point", fabs(getInertial() - aim_to) < 1.5, getInertial(), aim_to);
+}
 
-    // ---------- Drive to a pose: a point and the heading to arrive at, in one curve ----------
+// Drive to a pose: a point and the heading to arrive at, in one curve
+static void testDriveToPose() {
     // (a curve skids a little on real wheels, and odometry from the drive motors counts the skid)
     double pose_tolerance = sim::isRealistic() ? 4 : 1;
     reset();
@@ -467,15 +489,19 @@ int main() {
     // (the last part of the curve is slow: it is lining up with the heading while the point is already close)
     check("pose chain hands over still rolling, near 90", pose_handover_speed > 10 && fabs(pose_handover_heading - 90) < 30, pose_handover_speed, pose_handover_heading);
     check("  then drives on to (48, 24)", hypot(sim::x - 48, sim::y - 24) < pose_tolerance, sim::x, sim::y);
+}
 
+static void testSwingChain() {
     reset();
     PID_swing_chain(90, LEFT_SIDE, 10);
     double swing_handover = getInertial(), swing_rate = sim::rate;
     PID_forward(12, 0.3, 0.2);
     check("swing chain hands over 10 degrees early, still turning", swing_handover > 78 && swing_handover < 86 && swing_rate > 30, swing_handover, swing_rate);
     check("  forward after it keeps the swing's target 90", fabs(getInertial() - 90) < 1.5, getInertial(), 90);
+}
 
-    // The other _async turns: return right away, then do the same as the waiting ones
+// The other _async turns: return right away, then do the same as the waiting ones
+static void testAsyncTurns() {
     reset();
     setHeading(350);
     double t_call = sim::t_ms;
@@ -489,8 +515,10 @@ int main() {
     returned_moving = isMoving() && sim::t_ms == t_call;
     waitUntilDone();
     check("turn to point async: returns right away, faces 45", returned_moving && fabs(getInertial() - 45) < 1.5, returned_moving, getInertial());
+}
 
-    // The gentle start is skipped only while the robot is still driving, not after a turn in place
+// The gentle start is skipped only while the robot is still driving, not after a turn in place
+static void testGentleStart() {
     reset();
     PID_turn_chain(90, 10);
     PID_forward_async(24, 0.3, 0.2);
@@ -521,9 +549,11 @@ int main() {
     double speed_after_handover = getMotorRate();
     waitUntilDone();
     check("forward after a chained forward doesn't slow down", speed_after_handover >= handover_speed, speed_after_handover, handover_speed);
+}
 
-    // setHeading between chained movements: the next one keeps aiming the same real direction.
-    // The robot is still turning at the hand-over, so expect the turn's target in the new numbers.
+// setHeading between chained movements: the next one keeps aiming the same real direction.
+// The robot is still turning at the hand-over, so expect the turn's target in the new numbers.
+static void testSetHeadingInChain() {
     reset();
     PID_turn_chain(90, 10);
     double jump = 0 - getInertial();
@@ -536,23 +566,25 @@ int main() {
     setHeading(0);
     PID_turn_relative(90, 0.5, 0.2);
     check("  relative turn counts from the turn's target", fabs(getInertial() - (180 + jump)) < 1.5, getInertial(), 180 + jump);
+}
 
-    if (TRACKING_SIDEWAYS_PORT >= 0) {
-        reset();
-        PID_forward_async(48, 0.3, 0.2);
-        waitUntilTraveled(20);
-        sim::bump(5); // another robot pushes ours 5 inches to the right
-        waitUntilDone(); settle();
-        check("sideways tracking wheel sees the robot get pushed", odometryError() < 0.5 && fabs(sim::x - 5) < 0.5, odometryError(), sim::x);
-        reset();
-        PID_drive_to_point_async(0, 48, 0.5, 0.2);
-        waitUntilTraveled(20);
-        sim::bump(6);
-        waitUntilDone(); settle();
-        check("  drive to point still gets there after the push", hypot(sim::x, sim::y - 48) < 1.5, sim::x, sim::y);
-    }
+// Only with a sideways tracking wheel: the robot gets pushed sideways
+static void testSidewaysPush() {
+    reset();
+    PID_forward_async(48, 0.3, 0.2);
+    waitUntilTraveled(20);
+    sim::bump(5); // another robot pushes ours 5 inches to the right
+    waitUntilDone(); settle();
+    check("sideways tracking wheel sees the robot get pushed", odometryError() < 0.5 && fabs(sim::x - 5) < 0.5, odometryError(), sim::x);
+    reset();
+    PID_drive_to_point_async(0, 48, 0.5, 0.2);
+    waitUntilTraveled(20);
+    sim::bump(6);
+    waitUntilDone(); settle();
+    check("  drive to point still gets there after the push", hypot(sim::x, sim::y - 48) < 1.5, sim::x, sim::y);
+}
 
-    // ---------- Correcting the position from a wall ----------
+static void testSetXY() {
     reset();
     PID_forward(12, 0.3, 0.2); settle();
     double y_before = getY();
@@ -563,13 +595,17 @@ int main() {
     double dx = getX() - sim::x, dy = getY() - sim::y;
     PID_turn(90, 0.5, 0.2); PID_forward(12, 0.3, 0.2); settle();
     check("  odometry goes on from there", hypot(getX() - sim::x - dx, getY() - sim::y - dy) < 0.5, getX() - sim::x, dx);
+}
 
-    // Puts the simulated robot at (x, y) facing heading, and tells odometry a position that is
-    // off by (off_x, off_y), as if the wheels had slipped
-    auto placeRobot = [](double x, double y, double heading, double off_x, double off_y) {
-        settle(); sim::x = x; sim::y = y; sim::forgetReadings();
-        setPose(x + off_x, y + off_y, heading);
-    };
+// Puts the simulated robot at (x, y) facing heading, and tells odometry a position that is
+// off by (off_x, off_y), as if the wheels had slipped
+static void placeRobot(double x, double y, double heading, double off_x, double off_y) {
+    settle(); sim::x = x; sim::y = y; sim::forgetReadings();
+    setPose(x + off_x, y + off_y, heading);
+}
+
+// Correcting the position from a wall
+static void testWallReset() {
     if (DISTANCE_FRONT_PORT < 0) {
         placeRobot(40, 10, 90, 3, -2);
         check("no distance sensor: reset from wall -> false", !resetXFromWall(FRONT_SENSOR, 72)
@@ -655,8 +691,16 @@ int main() {
         PID_drive_to_point(48, 48, 0.5, 0.2); settle();
         check("slipped, reset from the wall, then drive to a point", fixed && hypot(sim::x - 48, sim::y - 48) < 1, sim::x, sim::y);
     }
+}
 
-    // ---------- Gains that can be changed while the program runs, and movement results ----------
+// How far the point (x, y) is in front of the robot, like PID_drive_to_point's error
+static double pointAhead(double x, double y) {
+    double h = getInertial() * M_PI / 180;
+    return (x - getX()) * sin(h) + (y - getY()) * cos(h);
+}
+
+// Gains that can be changed while the program runs, and movement results
+static void testMovementResults() {
     reset();
     PID_turn(90, 0.5, 0.2);
     MovementResult r = lastMovementResult();
@@ -694,10 +738,6 @@ int main() {
     check("backwards drive to point: overshoot is small, not 24", r.overshoot < 1 && fabs(sim::y + 24) < 1, r.overshoot, sim::y);
 
     // A drive to point that stops during its turn-first still reports inches left to drive
-    auto pointAhead = [](double x, double y) {
-        double h = getInertial() * M_PI / 180;
-        return (x - getX()) * sin(h) + (y - getY()) * cos(h);
-    };
     reset();
     PID_drive_to_point_async(48, 0, 0.5, 0.2); // turns 90 degrees first
     vexDelay(100);
@@ -720,7 +760,10 @@ int main() {
     PID_drive_to_point(48, 0, 0.5, 0.2, 200); // 200 ms is too short for its 90 degree turn
     r = lastMovementResult();
     check("drive to point timing out while turning", r.timed_out && r.time_ms < 230 && fabs(r.error - pointAhead(48, 0)) < 1.5, r.time_ms, r.error);
+}
 
+// Tuning from the controller
+static void testControllerTuner() {
     // The tuner's "every other try goes back" must bring the robot back to its spot
     reset();
     PID_arc(90, 24, 0.5, 0.2); PID_arc(0, -24, 0.5, 0.2); settle();
@@ -729,7 +772,6 @@ int main() {
     PID_swing(90, LEFT_SIDE, 0.5, 0.2); PID_swing(0, LEFT_SIDE, 0.5, 0.2); settle();
     check("swing to 90 and back with the left side -> start", hypot(sim::x, sim::y) < 1.5 && fabs(getInertial()) < 1.5, hypot(sim::x, sim::y), getInertial());
 
-    // ---------- Tuning from the controller ----------
     reset();
     task operator_task([]() -> int {
         auto press = [](button &b, double ms) { b.down = true; vexDelay(ms); b.down = false; vexDelay(300); };
@@ -748,7 +790,7 @@ int main() {
         press(Controller.ButtonB, 300);     // done
         return 0;
     });
-    PIDGains saved_turn = turnGains;
+    PIDGains saved_turn = turnGains, saved_forward = forwardGains;
     double tune_start = sim::t_ms;
     Brain.SDcard.inserted = true; // B saves the gains on it
     tuneWithController();
@@ -764,8 +806,9 @@ int main() {
           && tuned.find("FORWARD_KD = 0.86 config 0.78\n") != std::string::npos, tuned.size(), 0);
     turnGains = saved_turn;
     forwardGains = saved_forward;
+}
 
-    // ---------- SD card: gains ----------
+static void testSDCardGains() {
     auto sameGains = [](const PIDGains &a, const PIDGains &b) { return a.kp == b.kp && a.ki == b.ki && a.kd == b.kd; };
     const PIDGains config_turn = turnGains, config_forward = forwardGains, config_swing = swingGains, config_arc = arcGains;
     auto configGains = [&] { turnGains = config_turn; forwardGains = config_forward; swingGains = config_swing; arcGains = config_arc; };
@@ -811,28 +854,30 @@ int main() {
     std::string big_file = std::string(2100, '#') + "\nTURN_KP = 4.4\n";
     Brain.SDcard.files["pid_gains.txt"] = big_file;
     check("gains file over 2 KB -> false, gains unchanged", !loadGainsFromSDCard() && turnGains.kp == config_turn.kp, turnGains.kp, config_turn.kp);
+}
 
-    // ---------- SD card: logging ----------
-    // One table: move,name,time_ms,target,error,speed,output,p,i,d,x,y,heading
-    struct LogLine { int move; std::string name; double time, error, x, y; int fields; };
-    auto readLog = [](const std::string &text) {
-        std::vector<LogLine> lines;
-        size_t start = text.find('\n') + 1; // skip the header
-        while (start < text.size()) {
-            size_t end = text.find('\n', start);
-            std::string line = text.substr(start, end - start);
-            LogLine l = {0, "", 0, 0, 0, 0, 1};
-            for (char c : line) l.fields += (c == ',');
-            char name[64] = "";
-            double target, speed, output, p, i, d, heading;
-            sscanf(line.c_str(), "%d,%63[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &l.move, name, &l.time,
-                   &target, &l.error, &speed, &output, &p, &i, &d, &l.x, &l.y, &heading);
-            l.name = name;
-            lines.push_back(l);
-            start = end + 1;
-        }
-        return lines;
-    };
+// The SD card log is one table: move,name,time_ms,target,error,speed,output,p,i,d,x,y,heading
+struct LogLine { int move; std::string name; double time, error, x, y; int fields; };
+static std::vector<LogLine> readLog(const std::string &text) {
+    std::vector<LogLine> lines;
+    size_t start = text.find('\n') + 1; // skip the header
+    while (start < text.size()) {
+        size_t end = text.find('\n', start);
+        std::string line = text.substr(start, end - start);
+        LogLine l = {0, "", 0, 0, 0, 0, 1};
+        for (char c : line) l.fields += (c == ',');
+        char name[64] = "";
+        double target, speed, output, p, i, d, heading;
+        sscanf(line.c_str(), "%d,%63[^,],%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &l.move, name, &l.time,
+               &target, &l.error, &speed, &output, &p, &i, &d, &l.x, &l.y, &heading);
+        l.name = name;
+        lines.push_back(l);
+        start = end + 1;
+    }
+    return lines;
+}
+
+static void testSDCardLogging() {
     Brain.SDcard.inserted = true;
     for (int n = 1; n <= 9999; n++) Brain.SDcard.files["pidlog" + std::to_string(n) + ".csv"] = "full";
     check("logToSDCard: pidlog1 to pidlog9999 all taken -> false, nothing overwritten",
@@ -876,7 +921,7 @@ int main() {
     check("  one line every 20 ms, from 0", every_20ms, 0, 0);
     // Longer than the memory buffer holds: it has to write in the middle, without losing lines
     reset();
-    t0 = sim::t_ms;
+    double t0 = sim::t_ms;
     PID_forward(150, 0.3, 0.2, 12000, 20);
     double long_time = sim::t_ms - t0;
     settle();
@@ -912,206 +957,211 @@ int main() {
     PID_turn(0, 0.5, 0.2);
     settle();
     check("logToSDCard(false): nothing more", Brain.SDcard.files["pidlog2.csv"].size() == log_size, Brain.SDcard.files["pidlog2.csv"].size(), log_size);
+}
 
-    // ---------- Mechanisms: an arm that holds, an intake that unjams ----------
-    {
-        sim::mech_load[ARM] = 15; // a heavy arm: gravity pulls with 15% of the motor's power
-        arm.resetPosition(0);
-        check("arm: resetPosition", fabs(arm.position()) < 0.01, arm.position(), 0);
-        double t_start = sim::t_ms, highest_seen = 0;
-        arm.moveTo(300);
-        check("arm: not done right after moveTo", !arm.isDone(), arm.position(), 300);
-        while (!arm.isDone()) { highest_seen = fmax(highest_seen, arm.position()); vexDelay(5); }
-        check("arm: moveTo 300 against gravity arrives", fabs(arm.position() - 300) < ARM_TOLERANCE
-              && sim::t_ms - t_start < 1500, arm.position(), sim::t_ms - t_start);
-        check("  overshoot under 10 degrees", highest_seen - 300 < 10, highest_seen - 300, 10);
-        bool arrived = arm.waitUntilDone();
-        check("  waitUntilDone says it arrived", arrived, arrived, 1);
-        vexDelay(2000);
-        check("  holds there with the motor's hold mode", fabs(arm.position() - 300) < 2
-              && sim::mech_mode[ARM] == 3, arm.position(), sim::mech_mode[ARM]);
-        arm.moveTo(300);
-        check("  moveTo the same position again: still done", arm.isDone(), arm.isDone(), 1);
+// An arm that holds, with one motor and with two
+static void testArm() {
+    sim::mech_load[ARM] = 15; // a heavy arm: gravity pulls with 15% of the motor's power
+    arm.resetPosition(0);
+    check("arm: resetPosition", fabs(arm.position()) < 0.01, arm.position(), 0);
+    double t_start = sim::t_ms, highest_seen = 0;
+    arm.moveTo(300);
+    check("arm: not done right after moveTo", !arm.isDone(), arm.position(), 300);
+    while (!arm.isDone()) { highest_seen = fmax(highest_seen, arm.position()); vexDelay(5); }
+    check("arm: moveTo 300 against gravity arrives", fabs(arm.position() - 300) < ARM_TOLERANCE
+          && sim::t_ms - t_start < 1500, arm.position(), sim::t_ms - t_start);
+    check("  overshoot under 10 degrees", highest_seen - 300 < 10, highest_seen - 300, 10);
+    bool arrived = arm.waitUntilDone();
+    check("  waitUntilDone says it arrived", arrived, arrived, 1);
+    vexDelay(2000);
+    check("  holds there with the motor's hold mode", fabs(arm.position() - 300) < 2
+          && sim::mech_mode[ARM] == 3, arm.position(), sim::mech_mode[ARM]);
+    arm.moveTo(300);
+    check("  moveTo the same position again: still done", arm.isDone(), arm.isDone(), 1);
 
-        double lowest_seen = 1e9;
-        arm.moveTo(50);
-        while (!arm.isDone()) { lowest_seen = fmin(lowest_seen, arm.position()); vexDelay(5); }
-        check("arm: moveTo 50, gravity helping", fabs(arm.position() - 50) < ARM_TOLERANCE, arm.position(), 50);
-        check("  overshoot under 10 degrees", 50 - lowest_seen < 10, 50 - lowest_seen, 10);
+    double lowest_seen = 1e9;
+    arm.moveTo(50);
+    while (!arm.isDone()) { lowest_seen = fmin(lowest_seen, arm.position()); vexDelay(5); }
+    check("arm: moveTo 50, gravity helping", fabs(arm.position() - 50) < ARM_TOLERANCE, arm.position(), 50);
+    check("  overshoot under 10 degrees", 50 - lowest_seen < 10, 50 - lowest_seen, 10);
 
-        arm.moveTo(150, 30);
-        double fastest = 0;
-        while (!arm.isDone()) { fastest = fmax(fastest, sim::mech_cmd[ARM]); vexDelay(5); }
-        check("arm: max_speed 30 limits the power", fastest <= 30.01 && fabs(arm.position() - 150) < ARM_TOLERANCE, fastest, arm.position());
-        arm.moveTo(80, -30); // a negative speed is still a speed limit, not a direction
-        fastest = 0;
-        while (!arm.isDone()) { fastest = fmax(fastest, fabs(sim::mech_cmd[ARM])); vexDelay(5); }
-        check("  max_speed -30 works like 30", fastest <= 30.01 && fabs(arm.position() - 80) < ARM_TOLERANCE, fastest, arm.position());
+    arm.moveTo(150, 30);
+    double fastest = 0;
+    while (!arm.isDone()) { fastest = fmax(fastest, sim::mech_cmd[ARM]); vexDelay(5); }
+    check("arm: max_speed 30 limits the power", fastest <= 30.01 && fabs(arm.position() - 150) < ARM_TOLERANCE, fastest, arm.position());
+    arm.moveTo(80, -30); // a negative speed is still a speed limit, not a direction
+    fastest = 0;
+    while (!arm.isDone()) { fastest = fmax(fastest, fabs(sim::mech_cmd[ARM])); vexDelay(5); }
+    check("  max_speed -30 works like 30", fastest <= 30.01 && fabs(arm.position() - 80) < ARM_TOLERANCE, fastest, arm.position());
 
-        // Driver control: a button that calls moveTo every loop, and manual(0) from an idle stick
-        t_start = sim::t_ms;
-        for (int i = 0; i < 150 && (i < 3 || !arm.isDone()); i++) { arm.moveTo(100); arm.manual(0); vexDelay(20); }
-        check("arm: moveTo + manual(0) every loop still arrives", fabs(arm.position() - 100) < ARM_TOLERANCE
-              && arm.isDone(), arm.position(), sim::t_ms - t_start);
+    // Driver control: a button that calls moveTo every loop, and manual(0) from an idle stick
+    t_start = sim::t_ms;
+    for (int i = 0; i < 150 && (i < 3 || !arm.isDone()); i++) { arm.moveTo(100); arm.manual(0); vexDelay(20); }
+    check("arm: moveTo + manual(0) every loop still arrives", fabs(arm.position() - 100) < ARM_TOLERANCE
+          && arm.isDone(), arm.position(), sim::t_ms - t_start);
 
-        driveArm(60, 400);
-        double moved_to = arm.position();
-        check("arm: manual(60) raises it", moved_to > 150, moved_to, 100);
-        driveArm(0, 1000);
-        check("  manual(0): holds where it was let go", fabs(arm.position() - moved_to) < 10
-              && sim::mech_mode[ARM] == 3, arm.position(), moved_to);
-        driveArm(60, 200);
-        moved_to = arm.position();
-        driveArm(3, 1000); // a stick that doesn't sit exactly at 0
-        check("  a stick inside the deadband holds too", fabs(arm.position() - moved_to) < 10
-              && sim::mech_mode[ARM] == 3, arm.position(), moved_to);
+    driveArm(60, 400);
+    double moved_to = arm.position();
+    check("arm: manual(60) raises it", moved_to > 150, moved_to, 100);
+    driveArm(0, 1000);
+    check("  manual(0): holds where it was let go", fabs(arm.position() - moved_to) < 10
+          && sim::mech_mode[ARM] == 3, arm.position(), moved_to);
+    driveArm(60, 200);
+    moved_to = arm.position();
+    driveArm(3, 1000); // a stick that doesn't sit exactly at 0
+    check("  a stick inside the deadband holds too", fabs(arm.position() - moved_to) < 10
+          && sim::mech_mode[ARM] == 3, arm.position(), moved_to);
 
-        arm.moveTo(350);
-        vexDelay(50);
-        driveArm(-50, 100);
-        check("  the stick takes over a running moveTo: isDone", arm.isDone(), arm.isDone(), 1);
-        driveArm(0, 100);
+    arm.moveTo(350);
+    vexDelay(50);
+    driveArm(-50, 100);
+    check("  the stick takes over a running moveTo: isDone", arm.isDone(), arm.isDone(), 1);
+    driveArm(0, 100);
 
-        arm.setLimits(0, 400);
-        arm.moveTo(1000);
-        bool limited_ok = arm.waitUntilDone();
-        check("arm: setLimits(0, 400), moveTo(1000) stops at 400", fabs(arm.position() - 400) < ARM_TOLERANCE
-              && limited_ok, arm.position(), 400);
-        arm.moveTo(200); arm.waitUntilDone();
-        driveArm(100, 1500);
-        check("  manual(100) stops at the highest", arm.position() < 410 && arm.position() > 390
-              && sim::mech_mode[ARM] == 3, arm.position(), 400);
-        int not_holding = 0; // the held arm sags a little below 400: it must not start driving up again
-        for (int i = 0; i < 50; i++) { arm.manual(100); vexDelay(10); if (sim::mech_mode[ARM] != 3) not_holding++; }
-        check("  keeps holding while the stick pushes up", not_holding == 0, not_holding, 0);
-        driveArm(-100, 200);
-        check("  manual(-100) still goes down from there", arm.position() < 370, arm.position(), 400);
-        driveArm(-100, 1500);
-        check("  ... and stops at the lowest", arm.position() > -10 && arm.position() < 10, arm.position(), 0);
-        driveArm(0, 100);
-        arm.setLimits(-1e9, 1e9);
+    arm.setLimits(0, 400);
+    arm.moveTo(1000);
+    bool limited_ok = arm.waitUntilDone();
+    check("arm: setLimits(0, 400), moveTo(1000) stops at 400", fabs(arm.position() - 400) < ARM_TOLERANCE
+          && limited_ok, arm.position(), 400);
+    arm.moveTo(200); arm.waitUntilDone();
+    driveArm(100, 1500);
+    check("  manual(100) stops at the highest", arm.position() < 410 && arm.position() > 390
+          && sim::mech_mode[ARM] == 3, arm.position(), 400);
+    int not_holding = 0; // the held arm sags a little below 400: it must not start driving up again
+    for (int i = 0; i < 50; i++) { arm.manual(100); vexDelay(10); if (sim::mech_mode[ARM] != 3) not_holding++; }
+    check("  keeps holding while the stick pushes up", not_holding == 0, not_holding, 0);
+    driveArm(-100, 200);
+    check("  manual(-100) still goes down from there", arm.position() < 370, arm.position(), 400);
+    driveArm(-100, 1500);
+    check("  ... and stops at the lowest", arm.position() > -10 && arm.position() < 10, arm.position(), 0);
+    driveArm(0, 100);
+    arm.setLimits(-1e9, 1e9);
 
-        sim::mech_jammed[ARM] = true; // stuck on something
-        arm.moveTo(300);
-        t_start = sim::t_ms;
-        arrived = arm.waitUntilDone();
-        check("arm: stuck -> waitUntilDone false after ARM_TIMEOUT_MS", !arrived
-              && fabs(sim::t_ms - t_start - ARM_TIMEOUT_MS) < 50, sim::t_ms - t_start, ARM_TIMEOUT_MS);
-        check("  then holds where it is", sim::cmd_in.mech_mode[ARM] == 3, sim::cmd_in.mech_mode[ARM], 3);
-        sim::mech_jammed[ARM] = false;
+    sim::mech_jammed[ARM] = true; // stuck on something
+    arm.moveTo(300);
+    t_start = sim::t_ms;
+    arrived = arm.waitUntilDone();
+    check("arm: stuck -> waitUntilDone false after ARM_TIMEOUT_MS", !arrived
+          && fabs(sim::t_ms - t_start - ARM_TIMEOUT_MS) < 50, sim::t_ms - t_start, ARM_TIMEOUT_MS);
+    check("  then holds where it is", sim::cmd_in.mech_mode[ARM] == 3, sim::cmd_in.mech_mode[ARM], 3);
+    sim::mech_jammed[ARM] = false;
 
-        double before_release = arm.position();
-        arm.release();
-        vexDelay(500);
-        check("arm: release lets it fall", arm.position() < before_release - 10
-              && sim::mech_mode[ARM] == 1, arm.position(), before_release);
-        sim::mech_load[ARM] = 0;
+    double before_release = arm.position();
+    arm.release();
+    vexDelay(500);
+    check("arm: release lets it fall", arm.position() < before_release - 10
+          && sim::mech_mode[ARM] == 1, arm.position(), before_release);
+    sim::mech_load[ARM] = 0;
 
-        // Two motors
-        sim::mech_load[PORT16] = sim::mech_load[PORT17] = 10;
-        lift.resetPosition(0);
-        lift.moveTo(-200);
-        arrived = lift.waitUntilDone();
-        // (on a real robot the readings are a little behind: the lift moves on a bit before the hold takes over)
-        double true_tolerance = ARM_TOLERANCE + (sim::isRealistic() ? 1 : 0);
-        check("lift (2 motors): moveTo -200", arrived && fabs(lift.position() + 200) < ARM_TOLERANCE
-              && fabs(sim::mech_pos[PORT17] + 200) < true_tolerance, lift.position(), sim::mech_pos[PORT17]);
-        lift.release();
-        sim::mech_load[PORT16] = sim::mech_load[PORT17] = 0;
+    // Two motors
+    sim::mech_load[PORT16] = sim::mech_load[PORT17] = 10;
+    lift.resetPosition(0);
+    lift.moveTo(-200);
+    arrived = lift.waitUntilDone();
+    // (on a real robot the readings are a little behind: the lift moves on a bit before the hold takes over)
+    double true_tolerance = ARM_TOLERANCE + (sim::isRealistic() ? 1 : 0);
+    check("lift (2 motors): moveTo -200", arrived && fabs(lift.position() + 200) < ARM_TOLERANCE
+          && fabs(sim::mech_pos[PORT17] + 200) < true_tolerance, lift.position(), sim::mech_pos[PORT17]);
+    lift.release();
+    sim::mech_load[PORT16] = sim::mech_load[PORT17] = 0;
+}
 
-        // Intake
-        intake.spin(100);
-        vexDelay(500);
-        check("intake: spin(100) runs, starting up is not a jam", sim::mech_v[INTAKE] > 0.9 * sim::MECH_MAXV
-              && !intake.isJammed() && intake.jamCount() == 0, sim::mech_v[INTAKE], intake.jamCount());
-        sim::mech_jammed[INTAKE] = true;
-        vexDelay(80);
-        sim::mech_jammed[INTAKE] = false;
-        vexDelay(300);
-        check("  stuck for 80 ms: not a jam", intake.jamCount() == 0 && sim::mech_cmd[INTAKE] > 0, intake.jamCount(), 0);
-        sim::mech_jammed[INTAKE] = true;
-        vexDelay(INTAKE_JAM_MS - 30);
-        check("  jammed: not noticed before INTAKE_JAM_MS", !intake.isJammed(), intake.isJammed(), 0);
-        vexDelay(60);
-        check("  noticed after it", intake.isJammed() && intake.jamCount() == 1, intake.isJammed(), intake.jamCount());
-        check("  runs the other way to free it", sim::mech_cmd[INTAKE] < -99, sim::mech_cmd[INTAKE], -100);
-        sim::mech_jammed[INTAKE] = false; // the piece comes loose
-        for (int i = 0; i < 25; i++) { intake.spin(100); vexDelay(20); } // driver loop: same power again
-        double full_speed = sim::MECH_MAXV * sim::real::battery / 12;
-        check("  then forward again", !intake.isJammed() && sim::mech_cmd[INTAKE] > 99
-              && sim::mech_v[INTAKE] > 0.9 * full_speed, sim::mech_v[INTAKE], intake.jamCount());
-        sim::mech_jammed[INTAKE] = true;
-        vexDelay(INTAKE_JAM_MS + INTAKE_UNJAM_MS + INTAKE_JAM_MS + 50);
-        check("  stays stuck: tries again and again", intake.jamCount() == 3, intake.jamCount(), 3);
-        sim::mech_jammed[INTAKE] = false;
-        intake.spin(-100);
-        vexDelay(300);
-        check("  spin(-100) goes the other way", sim::mech_v[INTAKE] < -0.9 * sim::MECH_MAXV, sim::mech_v[INTAKE], 0);
+// An intake that unjams, with one motor and with two
+static void testIntake() {
+    intake.spin(100);
+    vexDelay(500);
+    check("intake: spin(100) runs, starting up is not a jam", sim::mech_v[INTAKE] > 0.9 * sim::MECH_MAXV
+          && !intake.isJammed() && intake.jamCount() == 0, sim::mech_v[INTAKE], intake.jamCount());
+    sim::mech_jammed[INTAKE] = true;
+    vexDelay(80);
+    sim::mech_jammed[INTAKE] = false;
+    vexDelay(300);
+    check("  stuck for 80 ms: not a jam", intake.jamCount() == 0 && sim::mech_cmd[INTAKE] > 0, intake.jamCount(), 0);
+    sim::mech_jammed[INTAKE] = true;
+    vexDelay(INTAKE_JAM_MS - 30);
+    check("  jammed: not noticed before INTAKE_JAM_MS", !intake.isJammed(), intake.isJammed(), 0);
+    vexDelay(60);
+    check("  noticed after it", intake.isJammed() && intake.jamCount() == 1, intake.isJammed(), intake.jamCount());
+    check("  runs the other way to free it", sim::mech_cmd[INTAKE] < -99, sim::mech_cmd[INTAKE], -100);
+    sim::mech_jammed[INTAKE] = false; // the piece comes loose
+    for (int i = 0; i < 25; i++) { intake.spin(100); vexDelay(20); } // driver loop: same power again
+    double full_speed = sim::MECH_MAXV * sim::real::battery / 12;
+    check("  then forward again", !intake.isJammed() && sim::mech_cmd[INTAKE] > 99
+          && sim::mech_v[INTAKE] > 0.9 * full_speed, sim::mech_v[INTAKE], intake.jamCount());
+    sim::mech_jammed[INTAKE] = true;
+    vexDelay(INTAKE_JAM_MS + INTAKE_UNJAM_MS + INTAKE_JAM_MS + 50);
+    check("  stays stuck: tries again and again", intake.jamCount() == 3, intake.jamCount(), 3);
+    sim::mech_jammed[INTAKE] = false;
+    intake.spin(-100);
+    vexDelay(300);
+    check("  spin(-100) goes the other way", sim::mech_v[INTAKE] < -0.9 * sim::MECH_MAXV, sim::mech_v[INTAKE], 0);
 
-        intake.spin(100);
-        vexDelay(500);
-        // Heavy, but still turning (even on a drained battery). The load comes while it already turns
-        // fast: reversing from full speed under this load would be slower than INTAKE_JAM_SPEED for
-        // about 130 ms, nearly INTAKE_JAM_MS, and whether that counts as a jam would be down to noise.
-        sim::mech_load[INTAKE] = 80;
-        vexDelay(1000);
-        // (the current really is over the limit, only the speed says it isn't jammed)
-        check("intake: heavy but still turning is not a jam", intake.jamCount() == 3
-              && sim::mechCurrent(INTAKE) > INTAKE_JAM_CURRENT && sim::mech_v[INTAKE] / sim::MECH_MAXV * 100 > INTAKE_JAM_SPEED,
-              sim::mechCurrent(INTAKE), sim::mech_v[INTAKE] / sim::MECH_MAXV * 100);
-        sim::mech_load[INTAKE] = 0;
-        intake.spin(5);
-        sim::mech_jammed[INTAKE] = true;
-        vexDelay(1000);
-        check("intake: slow on purpose (5%) is not a jam", intake.jamCount() == 3, intake.jamCount(), 3);
-        sim::mech_jammed[INTAKE] = false;
+    intake.spin(100);
+    vexDelay(500);
+    // Heavy, but still turning (even on a drained battery). The load comes while it already turns
+    // fast: reversing from full speed under this load would be slower than INTAKE_JAM_SPEED for
+    // about 130 ms, nearly INTAKE_JAM_MS, and whether that counts as a jam would be down to noise.
+    sim::mech_load[INTAKE] = 80;
+    vexDelay(1000);
+    // (the current really is over the limit, only the speed says it isn't jammed)
+    check("intake: heavy but still turning is not a jam", intake.jamCount() == 3
+          && sim::mechCurrent(INTAKE) > INTAKE_JAM_CURRENT && sim::mech_v[INTAKE] / sim::MECH_MAXV * 100 > INTAKE_JAM_SPEED,
+          sim::mechCurrent(INTAKE), sim::mech_v[INTAKE] / sim::MECH_MAXV * 100);
+    sim::mech_load[INTAKE] = 0;
+    intake.spin(5);
+    sim::mech_jammed[INTAKE] = true;
+    vexDelay(1000);
+    check("intake: slow on purpose (5%) is not a jam", intake.jamCount() == 3, intake.jamCount(), 3);
+    sim::mech_jammed[INTAKE] = false;
 
-        intake.spin(100, false);
-        vexDelay(300);
-        sim::mech_jammed[INTAKE] = true;
-        vexDelay(INTAKE_JAM_MS + 50);
-        check("intake unjam=false: a jam stops it", intake.isJammed() && sim::mech_mode[INTAKE] == 1
-              && intake.jamCount() == 4, intake.isJammed(), sim::mech_mode[INTAKE]);
-        sim::mech_jammed[INTAKE] = false;
-        for (int i = 0; i < 20; i++) { intake.spin(100, false); vexDelay(20); }
-        check("  spin with the same power: stays stopped", intake.isJammed() && sim::mech_mode[INTAKE] == 1,
-              intake.isJammed(), sim::mech_mode[INTAKE]);
-        intake.stop();
-        vexDelay(20);
-        check("  stop(): not jammed any more", !intake.isJammed(), intake.isJammed(), 0);
-        intake.spin(100, false);
-        vexDelay(300);
-        check("  spin again: runs", sim::mech_v[INTAKE] > 0.9 * sim::MECH_MAXV, sim::mech_v[INTAKE], 0);
-        intake.stop();
+    intake.spin(100, false);
+    vexDelay(300);
+    sim::mech_jammed[INTAKE] = true;
+    vexDelay(INTAKE_JAM_MS + 50);
+    check("intake unjam=false: a jam stops it", intake.isJammed() && sim::mech_mode[INTAKE] == 1
+          && intake.jamCount() == 4, intake.isJammed(), sim::mech_mode[INTAKE]);
+    sim::mech_jammed[INTAKE] = false;
+    for (int i = 0; i < 20; i++) { intake.spin(100, false); vexDelay(20); }
+    check("  spin with the same power: stays stopped", intake.isJammed() && sim::mech_mode[INTAKE] == 1,
+          intake.isJammed(), sim::mech_mode[INTAKE]);
+    intake.stop();
+    vexDelay(20);
+    check("  stop(): not jammed any more", !intake.isJammed(), intake.isJammed(), 0);
+    intake.spin(100, false);
+    vexDelay(300);
+    check("  spin again: runs", sim::mech_v[INTAKE] > 0.9 * sim::MECH_MAXV, sim::mech_v[INTAKE], 0);
+    intake.stop();
 
-        // Two motors: INTAKE_JAM_CURRENT is for each motor, not all of them together
-        roller.spin(50);
-        vexDelay(300);
-        sim::mech_jammed[PORT19] = sim::mech_jammed[PORT20] = true; // each draws 1.35 A at 50%
-        vexDelay(500);
-        check("roller (2 motors): 1.35 A each at 50% is under the limit", roller.jamCount() == 0, roller.jamCount(), 0);
-        roller.spin(100);
-        vexDelay(INTAKE_JAM_MS + 50);
-        check("  2.5 A each at 100%: jammed", roller.jamCount() == 1, roller.jamCount(), 1);
-        sim::mech_jammed[PORT19] = sim::mech_jammed[PORT20] = false;
-        roller.stop();
-        vexDelay(50);
+    // Two motors: INTAKE_JAM_CURRENT is for each motor, not all of them together
+    roller.spin(50);
+    vexDelay(300);
+    sim::mech_jammed[PORT19] = sim::mech_jammed[PORT20] = true; // each draws 1.35 A at 50%
+    vexDelay(500);
+    check("roller (2 motors): 1.35 A each at 50% is under the limit", roller.jamCount() == 0, roller.jamCount(), 0);
+    roller.spin(100);
+    vexDelay(INTAKE_JAM_MS + 50);
+    check("  2.5 A each at 100%: jammed", roller.jamCount() == 1, roller.jamCount(), 1);
+    sim::mech_jammed[PORT19] = sim::mech_jammed[PORT20] = false;
+    roller.stop();
+    vexDelay(50);
+}
 
-        // Only 8 of each: one more must not hang waitUntilDone, and must not move its motor
-        static motor spare(PORT21, ratio36_1, false);
-        for (int i = 0; i < 6; i++) { new Arm(spare); new Intake(spare); } // with the 2 above: 8 each
-        Arm *ninth_arm = new Arm(spare);
-        Intake *ninth_intake = new Intake(spare);
-        t_start = sim::t_ms;
-        ninth_arm->moveTo(100);
-        arrived = ninth_arm->waitUntilDone();
-        check("9th Arm: waitUntilDone returns false right away", !arrived && sim::t_ms - t_start < 1, arrived, sim::t_ms - t_start);
-        ninth_intake->spin(100);
-        vexDelay(100);
-        check("9th Intake: does nothing", sim::mech_cmd[PORT21] == 0 && sim::mech_mode[PORT21] == 0, sim::mech_cmd[PORT21], 0);
-    }
+// Only 8 of each: one more must not hang waitUntilDone, and must not move its motor
+static void testTooManyMechanisms() {
+    static motor spare(PORT21, ratio36_1, false);
+    for (int i = 0; i < 6; i++) { new Arm(spare); new Intake(spare); } // with the 2 at the top: 8 each
+    Arm *ninth_arm = new Arm(spare);
+    Intake *ninth_intake = new Intake(spare);
+    double t_start = sim::t_ms;
+    ninth_arm->moveTo(100);
+    bool arrived = ninth_arm->waitUntilDone();
+    check("9th Arm: waitUntilDone returns false right away", !arrived && sim::t_ms - t_start < 1, arrived, sim::t_ms - t_start);
+    ninth_intake->spin(100);
+    vexDelay(100);
+    check("9th Intake: does nothing", sim::mech_cmd[PORT21] == 0 && sim::mech_mode[PORT21] == 0, sim::mech_cmd[PORT21], 0);
+}
 
-    // ---------- Robot setup checks ----------
+static void testCheckDevices() {
     settle();
     int rumbles = Controller.rumbles;
     check("checkDevices: all plugged in -> true", checkDevices() && Controller.rumbles == rumbles, Controller.rumbles, rumbles);
@@ -1124,7 +1174,9 @@ int main() {
     sim::heat[PORT_RIGHTBACK] = 25;
     check("checkDevices: motor at 60 C -> false", !checkDevices(), 0, 0);
     sim::heat[PORT_RIGHTBACK] = 0;
+}
 
+static void testTestDrivetrain() {
     reset();
     check("testDrivetrain: correct setup -> true", testDrivetrain(), 0, 0);
     reset();
@@ -1147,8 +1199,9 @@ int main() {
     sim::unplugged[PORT_LEFTBACK] = true;
     check("testDrivetrain: motor unplugged -> false", !testDrivetrain(), 0, 0);
     sim::unplugged[PORT_LEFTBACK] = false;
+}
 
-    // ---------- Measuring the robot ----------
+static void testMeasureTrackWidth() {
     reset();
     TrackWidthResult track = measureTrackWidth();
     check("measureTrackWidth: 12 inch track", fabs(track.track_width - 12) < 0.1, track.track_width, 12);
@@ -1159,8 +1212,10 @@ int main() {
     track = measureTrackWidth();
     sim::track = 12;
     check("measureTrackWidth: robot that turns like a 13 inch track", fabs(track.track_width - 13) < 0.1, track.track_width, 13);
+}
 
-    // These change the wheel sizes in the simulator, which makes odometry jump: keep them last
+// These change the wheel sizes in the simulator, which makes odometry jump: keep them last
+static void testMeasureWheelSize() {
     settle();
     sim::wheel_diam = 3.30;    // the config says 3.25
     sim::track_wheel_diam = TRACKING_WHEEL_DIAMETER_INCH + 0.05;
@@ -1177,10 +1232,48 @@ int main() {
           : fabs(wheels.tracking_wheel_diameter - sim::track_wheel_diam) < 0.01, wheels.tracking_wheel_diameter, sim::track_wheel_diam);
     // The wheels are still bigger than the config says: the track width must use the measured size
     reset();
-    track = measureTrackWidth();
+    TrackWidthResult track = measureTrackWidth();
     check("measureTrackWidth after measureWheelSize: still 12", fabs(track.track_width - 12) < 0.1, track.track_width, 12);
     check("  tracking wheel offsets with the measured wheel size", fabs(track.forward_offset - TRACKING_FORWARD_OFFSET) < 0.02
           && fabs(track.sideways_offset - TRACKING_SIDEWAYS_OFFSET) < 0.02, track.forward_offset, track.sideways_offset);
+}
+
+// The tests run one after another on the same simulated robot, in this order: each one starts
+// where the one before left the robot (and, with SIM_REALISTIC, the noise), so to run only some
+// of them, comment out the others rather than moving them around
+int main() {
+    setUpSimulator();
+    testCalibration();
+    testBasicMovements();
+    testDriverControl();
+    testAsync();
+    testTelemetry();
+    testArcs();
+    testChaining();
+    testMaxSpeedPerSide();
+    testAutonSelector();
+    testOdometry();
+    testDriveToPoint();
+    testChainedDriveToPoint();
+    testDriveToPose();
+    testSwingChain();
+    testAsyncTurns();
+    testGentleStart();
+    testSetHeadingInChain();
+    if (TRACKING_SIDEWAYS_PORT >= 0) testSidewaysPush();
+    testSetXY();
+    testWallReset();
+    testMovementResults();
+    testControllerTuner();
+    testSDCardGains();
+    testSDCardLogging();
+    testArm();
+    testIntake();
+    testTooManyMechanisms();
+    testCheckDevices();
+    testTestDrivetrain();
+    testMeasureTrackWidth();
+    testMeasureWheelSize(); // keep last, see there
 
     printf("%d failures\n", fails);
     fflush(stdout);

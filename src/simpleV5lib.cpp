@@ -844,6 +844,27 @@ static MotionRequest makeArcRequest(double target, double radius, double error_t
     return request;
 }
 
+// Where a drive to a point goes
+static void setTargetPoint(MotionRequest &request, double x, double y, bool backwards) {
+    request.target_x = x;
+    request.target_y = y;
+    request.backwards = backwards;
+}
+
+// Where a drive to a pose goes: a point, and the heading to arrive at
+static void setTargetPose(MotionRequest &request, double x, double y, double heading, bool backwards, double lead) {
+    setTargetPoint(request, x, y, backwards);
+    request.target_heading = heading;
+    request.lead = lead;
+}
+
+// The heading a turn to the point (x, y) goes to: the short way round to face it (backwards: to
+// have the back of the robot face it)
+static double turnToPointTarget(double x, double y, bool backwards) {
+    double flip = backwards ? 180 : 0;
+    return shortestTarget(headingTo(x, y) + flip);
+}
+
 // ---------- Start a movement and return right away ----------
 
 void PID_forward_async(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
@@ -878,17 +899,14 @@ void PID_turn_to_point_async(double x, double y, double error_tolerance, double 
                              double timeout_ms, double max_speed, bool backwards) {
     startOdometry();
     waitUntilDone(); // aim from where the robot is after the previous movement ends
-    double flip = backwards ? 180 : 0;
-    PID_turn_async(shortestTarget(headingTo(x, y) + flip), error_tolerance, speed_tolerance, timeout_ms, max_speed);
+    PID_turn_async(turnToPointTarget(x, y, backwards), error_tolerance, speed_tolerance, timeout_ms, max_speed);
 }
 
 void PID_drive_to_point_async(double x, double y, double error_tolerance, double speed_tolerance,
                               double timeout_ms, double max_speed, bool backwards) {
     startOdometry();
     MotionRequest request = makeRequest(MOTION_TO_POINT, 0, error_tolerance, speed_tolerance, timeout_ms, max_speed);
-    request.target_x = x;
-    request.target_y = y;
-    request.backwards = backwards;
+    setTargetPoint(request, x, y, backwards);
     startMotion(request);
 }
 
@@ -896,11 +914,7 @@ void PID_drive_to_pose_async(double x, double y, double heading, double error_to
                              double timeout_ms, double max_speed, bool backwards, double lead) {
     startOdometry();
     MotionRequest request = makeRequest(MOTION_TO_POSE, 0, error_tolerance, speed_tolerance, timeout_ms, max_speed);
-    request.target_x = x;
-    request.target_y = y;
-    request.target_heading = heading;
-    request.lead = lead;
-    request.backwards = backwards;
+    setTargetPose(request, x, y, heading, backwards, lead);
     startMotion(request);
 }
 
@@ -976,9 +990,7 @@ void PID_swing_chain(double target, driveSide moving_side, double exit_range, do
 void PID_drive_to_point_chain(double x, double y, double exit_range, double timeout_ms, double max_speed, bool backwards) {
     startOdometry();
     MotionRequest request = makeChainRequest(MOTION_TO_POINT, 0, exit_range, timeout_ms, max_speed);
-    request.target_x = x;
-    request.target_y = y;
-    request.backwards = backwards;
+    setTargetPoint(request, x, y, backwards);
     startMotion(request);
     waitUntilDone();
 }
@@ -987,11 +999,7 @@ void PID_drive_to_pose_chain(double x, double y, double heading, double exit_ran
                              bool backwards, double lead) {
     startOdometry();
     MotionRequest request = makeChainRequest(MOTION_TO_POSE, 0, exit_range, timeout_ms, max_speed);
-    request.target_x = x;
-    request.target_y = y;
-    request.target_heading = heading;
-    request.lead = lead;
-    request.backwards = backwards;
+    setTargetPose(request, x, y, heading, backwards, lead);
     startMotion(request);
     waitUntilDone();
 }
@@ -999,8 +1007,7 @@ void PID_drive_to_pose_chain(double x, double y, double heading, double exit_ran
 void PID_turn_to_point_chain(double x, double y, double exit_range, double timeout_ms, double max_speed, bool backwards) {
     startOdometry();
     waitUntilDone(); // aim from where the robot is after the previous movement ends
-    double flip = backwards ? 180 : 0;
-    PID_turn_chain(shortestTarget(headingTo(x, y) + flip), exit_range, timeout_ms, max_speed);
+    PID_turn_chain(turnToPointTarget(x, y, backwards), exit_range, timeout_ms, max_speed);
 }
 
 void PID_arc_chain(double target, double radius, double exit_range, double timeout_ms, double max_speed) {

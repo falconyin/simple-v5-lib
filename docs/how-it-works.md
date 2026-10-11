@@ -75,6 +75,27 @@ measurement wrong. So the power is limited to a ramp that starts at 30% and rise
 comes from the PID. After a chained movement (section 6) the robot is already moving, and the
 ramp starts from the power the drivetrain already has instead of from 30%.
 
+### Not letting the wheels slip: traction control
+
+The ramp covers the start, but a movement changes its power all the time: a turn in place
+starts at full power, the D term brakes hard near the target, steering pulls one side down
+sharply. A wheel pushed much harder than it is turning spins on the tiles, and one slowed down
+or reversed much faster skids. Either way the drive motors count the slip as driving, so
+`getPosition()` and odometry (section 7) drift off.
+
+So every movement's power goes through `gripPower` first: each side's power stays within
+`DRIVE_SLIP_LIMIT` (40%) of how fast its wheels already turn, in percent of full speed. From a
+standstill a side gets at most 40%; once its wheels turn at 30% it can have 70%; braking from 80%
+it can go down to 40%, and lower as the wheels slow down. That is the most a wheel can be pushed
+without slipping on the simulator's tiles (see the README): there, a route of points, a chain and
+a pose that used to slip six inches now doesn't slip at all, and movements take about 4% longer.
+If the wheels don't follow at all, because the robot pushes against a wall or another robot,
+the allowed range still widens by `SLIP_LIMIT_WIDENS_PER_S`, so it pushes full power a moment later.
+
+`DRIVE_SLIP_LIMIT` is a starting value from the simulator; wheels with more grip can take more
+(a larger value, 200 = off). `move()` and driver control are never limited: a driver expects the
+robot to do exactly what the stick says.
+
 ### The gains
 
 kP, kI and kD are called the **gains**. They start with the values in `simpleV5LibConfig.h`
@@ -385,18 +406,22 @@ carrot = target - lead * distance_left * (sin heading, cos heading)
 
 Far away, the carrot is well behind the target, so the robot drives towards the line it must
 arrive along. As it gets closer the carrot slides onto the target, and the last part of the
-drive is along the target heading. Closer than `POINT_AIM_DISTANCE` the robot aims at the
-target heading itself, which is where the carrot was leading anyway. Driving backwards, the
-carrot hangs on the other side of the target, since the robot arrives there back first.
+drive is along the target heading. Close to the target the robot aims at the target heading
+itself, which is where the carrot was leading anyway. It doesn't switch at once: from twice
+`POINT_AIM_DISTANCE` away the aim slides over from the carrot to the heading, and is all the way
+there at `POINT_AIM_DISTANCE`. A sudden switch can mean a sudden hard turn, which would skid the
+wheels (or, with traction control holding it back, swing wide of the target). Driving backwards,
+the carrot hangs on the other side of the target, since the robot arrives there back first.
 
 `lead` sets the shape: bigger = a wider curve that lines up with the heading earlier, smaller =
 a straighter drive that has to turn harder at the end. 0 drives straight at the point and turns
 to the heading there. A pose the robot can't curve into (one that points back at it) comes out
 the same way: drive there, then turn around on the spot.
 
-A curve like this skids a little on real wheels, more than driving straight: a long curve to a
-pose can end an inch or two off when odometry comes from the drive motors. Tracking wheels get
-it exact. (The simulator's real-world layer, see the README, is what showed this.)
+A curve like this used to skid a little, more than driving straight, and end an inch or two
+off when odometry comes from the drive motors. With traction control and the gradual switch, the
+simulator's real-world layer (see the README) ends these curves well under an inch off; on a
+real robot that is still to be confirmed. Tracking wheels make odometry exact whatever the wheels do.
 
 ### Chaining points into a path
 
@@ -419,9 +444,10 @@ its PID aims `exit_range` inches past the point, and it hands over when the poin
   Facing more than 90° away from the point, `cos(aim error)` would give no drive power at all,
   and the robot would stop to turn in the middle of its path; a point that far around even
   counts as "behind" to the PID. So through such a corner it keeps rolling with `CORNER_POWER`
-  the way it drives, and turns with the power that is left. Even so, a real robot's wheels slip
-  a little in every corner, and odometry from the drive motors counts that slip: a path with
-  sharp corners can end an inch or two off. Tracking wheels don't slip, and get it exact.
+  the way it drives, and turns with the power that is left. Traction control (section 1) keeps
+  the wheels from slipping in the corners; readings that arrive a little late still cost a bit,
+  and in the simulator's real-world layer a path with sharp corners ends within about half an
+  inch. Tracking wheels don't slip at all, and get it exact.
 
 `PID_drive_to_pose_chain` chains poses the same way.
 

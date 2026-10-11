@@ -96,7 +96,11 @@ The library only ever includes `"vex.h"`, which it never ships. Both builds supp
   but only switch inside `vexDelay`/`wait`. It can inject setup faults (`sim::unplugged`, `wrong_direction`, `sides_swapped`, `gyro_rate_flipped`, `wheel_diam`) which is
   how `src/robotSetup.cpp` is tested, and disturbances (`gain` for a weak side, `bump`, `push`, `obstacle`,
   `heat`). Its real-world layer (`sim::real`: delays, noise, drift, battery, grip) is off unless
-  `-DSIM_REALISTIC`; `sim::v` is the robot's true speed and `sim::wheel_v` the wheels', they differ while skidding.
+  `-DSIM_REALISTIC`; `sim::v` is the robot's true speed and `sim::wheel_v` the wheels', they differ while skidding, and
+  `sim::slipped` adds up the forward/backward part of that difference (what drive-motor odometry gets wrong; a
+  symmetric turn-in-place skid cancels out). A drive motor's `velocity(pct)` is the wheel speed as a percent of
+  `MAXV`, like a real motor's percent of its cartridge speed. A `screen` keeps what was printed since its last
+  `clearScreen()` in `text`, so tests can check which message the library showed.
 - `ci/vex.h` — a copy of the `vex.h` a fresh VEXcode project generates, used only so the SDK build
   compiles. Consumers already have this file.
 
@@ -139,8 +143,8 @@ drive motors, `leftDrive`/`rightDrive` motor groups, `Inertial`). The library ow
 Only three inner loops exist. `driveForward()` handles `PID_forward` (and heading-hold straightness via
 `FORWARD_HEADING_KP`), `driveToPoint()` handles `PID_drive_to_point` *and* `PID_drive_to_pose` (the
 same loop; `aimPoint()` returns the point, or for a pose the boomerang "carrot" `lead × distance` behind
-the target along the target heading, and `aimHeading()` switches to the target heading itself inside
-`POINT_AIM_DISTANCE`), and `turnToHeading()` handles
+the target along the target heading, and `aimHeading()` slides a pose's aim over to the target heading itself
+between 2× and 1× `POINT_AIM_DISTANCE`; a sudden switch there needed a brake harder than traction control allows), and `turnToHeading()` handles
 *everything that ends at a heading* — point turns, swings and arcs — differing only in `turnStyle` and
 how power reaches the wheels. Adding a new heading-based movement means a `turnStyle` case, not a new loop.
 
@@ -157,6 +161,15 @@ corner of more than 90° (there `cos(aim error)` would cut the drive power to ze
 as "behind"; the robot rolls through at `CORNER_POWER` in its travel direction instead). The 90° square
 chained-points test is sensitive to all three: its second corner's turn angle lands right around 90–110°
 depending on how the first corner was exited.
+
+**Traction control** sits under all three loops: they drive through `driveWithGrip()` (or `gripPower()`
+for a swing's one side), which keeps each side's power within `DRIVE_SLIP_LIMIT` of that side's wheel speed
+(`velocity(pct)`), widening by `SLIP_LIMIT_WIDENS_PER_S` from the last power so a stalled robot (pushing a
+wall) still reaches full power. It is what removed the realistic simulator's slip-driven odometry errors.
+The public `move()` and driver control bypass it on purpose; `spinSide()`/`stopSide()` record each side's
+last power (`side_power`), which `lastDrivePower()` averages for `rampFrom`/`slowDown`. Because braking is
+limited too, a movement can no longer rely on an instant hard correction: the pose aim blend above exists
+for that reason, and a new steering rule should be checked on the perfect *and* realistic runs.
 
 **Chaining** is why so much state is global: a chained movement returns with the robot still moving,
 so the next one must know the heading that was being aimed for (`chain_heading`), whether the previous

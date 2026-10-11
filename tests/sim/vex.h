@@ -130,6 +130,9 @@ inline bool isRealistic() {
 inline bool realistic_at_start = (realistic(true), true);
 #endif
 inline double wheel_v[2] = {0, 0};  // what the wheels themselves do: the same as v unless they slip
+// How far the wheels have slipped forward or backwards so far (inches): what odometry from the drive
+// motors counts wrongly. Slip while turning in place, the same both ways, cancels out and isn't counted.
+inline double slipped = 0;
 inline double imu_heading = 0;      // what the IMU thinks the heading is (drifts away from heading)
 inline double calibrating_until = 0;
 // Noise that is the same every run, so a test that passes keeps passing
@@ -244,6 +247,7 @@ inline void step() {               // 1 ms
         dist[s] += wheel_v[s] * 0.001;
         peak = fmax(peak, fabs(v[s]));
     }
+    slipped += fabs((wheel_v[0] + wheel_v[1]) / 2 - (v[0] + v[1]) / 2) * 0.001;
     rate = (v[0] - v[1]) / track * 180 / M_PI;
     heading += rate * 0.001;
     imu_heading += (rate + real::imu_drift) * 0.001;
@@ -325,7 +329,7 @@ struct motor { int port;
     double dps = (mech() ? sim::seen().mech_v[port] : sign() * sim::seen().v[side()] / (sim::wheel_diam * M_PI) / RATIO * 360)
                  + sim::noise(sim::real::velocity_noise);
     if (mech()) return u == velocityUnits::pct ? dps / sim::MECH_MAXV * 100 : dps;
-    return dps; }
+    return u == velocityUnits::pct ? dps / (sim::MAXV / (sim::wheel_diam * M_PI) / RATIO * 360) * 100 : dps; }
   double current(currentUnits){ return mech() ? sim::seen().mech_current[port] : 0; }
   void stop(brakeType b){
     if (mech()) sim::cmd_in.mech_mode[port] = b == brakeType::coast ? 1 : b == brakeType::brake ? 2 : 3;

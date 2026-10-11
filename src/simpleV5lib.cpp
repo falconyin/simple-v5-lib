@@ -119,39 +119,75 @@ double getMotorRate() {
 // Basic driving
 // ============================================================================
 
-// Power one side, in percent (-100 to 100). 100% = 12 V = 12000 mV.
-static void spinSide(motor_group &side, double speed) {
-    side.spin(directionType::fwd, speed * 120, voltageUnits::mV);
+// Power one side (0 = left, 1 = right), in percent (-100 to 100). 100% = 12 V = 12000 mV.
+// Each side remembers the power it got last, and when.
+static double side_power[2] = {0, 0};
+static double side_power_time[2] = {0, 0};
+static motor_group &sideMotors(int side) {
+    return (side == 0) ? leftDrive : rightDrive;
+}
+static void spinSide(int side, double speed) {
+    sideMotors(side).spin(directionType::fwd, speed * 120, voltageUnits::mV);
+    side_power[side] = speed;
+    side_power_time[side] = Brain.timer(timeUnits::msec);
+}
+static void stopSide(int side, brakeType mode) {
+    sideMotors(side).stop(mode);
+    side_power[side] = 0;
+    side_power_time[side] = Brain.timer(timeUnits::msec);
 }
 
-// If either side asks for more than 100, both sides are scaled down together
+// The average power of the two sides, the last time they got one (0 after stopping)
+static double lastDrivePower() {
+    return (side_power[0] + side_power[1]) / 2;
+}
+
+// If either side asks for more than limit, both sides are scaled down together
 // so the ratio between them (which steers the robot) is kept.
-static double last_drive_power = 0; // the average of the two sides, the last time move() was called
-void move(double left_speed, double right_speed) {
-    double biggest = fmax(fabs(left_speed), fabs(right_speed));
-    if (biggest > 100) {
-        left_speed = left_speed / biggest * 100;
-        right_speed = right_speed / biggest * 100;
-    }
-    spinSide(leftDrive, left_speed);
-    spinSide(rightDrive, right_speed);
-    last_drive_power = (left_speed + right_speed) / 2;
-}
-
-// Like move(), but neither side goes above limit. Both sides are scaled down together,
-// so the robot still steers the same way.
-static void moveLimited(double left_speed, double right_speed, double limit) {
+static void scaleDown(double &left_speed, double &right_speed, double limit) {
     double biggest = fmax(fabs(left_speed), fabs(right_speed));
     if (biggest > limit) {
         left_speed = left_speed / biggest * limit;
         right_speed = right_speed / biggest * limit;
     }
-    move(left_speed, right_speed);
+}
+
+void move(double left_speed, double right_speed) {
+    scaleDown(left_speed, right_speed, 100);
+    spinSide(0, left_speed);
+    spinSide(1, right_speed);
 }
 
 void stopDriving(brakeType mode) {
-    leftDrive.stop(mode);
-    rightDrive.stop(mode);
+    stopSide(0, mode);
+    stopSide(1, mode);
+}
+
+// Traction control, for the movements (move() and driver control get exactly the power asked for).
+// A wheel pushed much harder than it is turning spins on the tiles, and one slowed down or reversed
+// much faster skids, and the drive motors count the slip as driving, which throws getPosition() and
+// odometry off. So a side's power stays within DRIVE_SLIP_LIMIT of its wheels' speed, both in percent:
+// at a standstill it starts with up to DRIVE_SLIP_LIMIT, then goes up as fast as the wheels follow.
+// The wheels may not follow at all, because the robot pushes against a wall or another robot: then
+// the range still widens by SLIP_LIMIT_WIDENS_PER_S from the last power, so it pushes full power anyway.
+const double SLIP_LIMIT_WIDENS_PER_S = 200;
+static double gripPower(int side, double power) {
+    double wheel_speed = sideMotors(side).velocity(velocityUnits::pct);
+    // How long since the last power (at most 20 ms, a movement gives one every 10 ms: a power from
+    // long ago doesn't widen the range more than that)
+    double ms = fmin(20, Brain.timer(timeUnits::msec) - side_power_time[side]);
+    double widen = ms / 1000 * SLIP_LIMIT_WIDENS_PER_S;
+    double highest = fmax(wheel_speed + DRIVE_SLIP_LIMIT, side_power[side] + widen);
+    double lowest = fmin(wheel_speed - DRIVE_SLIP_LIMIT, side_power[side] - widen);
+    return fmax(lowest, fmin(highest, power));
+}
+
+// How the movements drive: like move(), but neither side goes above limit (both sides are scaled
+// down together, so the robot still steers the same way), and with traction control
+static void driveWithGrip(double left_speed, double right_speed, double limit) {
+    scaleDown(left_speed, right_speed, limit);
+    spinSide(0, gripPower(0, left_speed));
+    spinSide(1, gripPower(1, right_speed));
 }
 
 // ============================================================================
@@ -289,7 +325,7 @@ static double rampFrom(double travel) {
     if (getMotorRate() * travel > ALREADY_DRIVING_SPEED) {
         return travel * 100;
     }
-    return last_drive_power;
+    return lastDrivePower();
 }
 
 // Slows the robot down to to_speed before a turn in place or a sharp corner while it still rolls from
@@ -301,14 +337,14 @@ static double rampFrom(double travel) {
 const double SLOW_DOWN_TIMEOUT_MS = 800;
 static void slowDown(double to_speed) {
     double start_time = Brain.timer(timeUnits::msec);
-    double from = last_drive_power;
+    double from = lastDrivePower();
     while (!cancel_requested && fabs(getMotorRate()) > to_speed) {
         double time_ms = Brain.timer(timeUnits::msec) - start_time;
         if (time_ms > SLOW_DOWN_TIMEOUT_MS) {
             break;
         }
         double power = fmax(0, fabs(from) - time_ms / 1000 * RAMP_PERCENT_PER_S);
-        move(getSign(from) * power, getSign(from) * power);
+        driveWithGrip(getSign(from) * power, getSign(from) * power, 100);
         vexDelay(10);
     }
 }
@@ -448,24 +484,22 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
         }
 
         if (style == POINT_TURN) {
-            move(total_correction, total_correction * -1); // positive = clockwise
+            driveWithGrip(total_correction, total_correction * -1, 100); // positive = clockwise
         } else if (style == LEFT_SWING) {
-            spinSide(leftDrive, total_correction); // left side forward = clockwise
-            rightDrive.stop(brakeType::hold);
-            last_drive_power = total_correction / 2; // one side pushes, the other stands: half the power on average
+            spinSide(0, gripPower(0, total_correction)); // left side forward = clockwise
+            stopSide(1, brakeType::hold);
         } else if (style == RIGHT_SWING) {
-            spinSide(rightDrive, total_correction * -1); // right side backward = clockwise
-            leftDrive.stop(brakeType::hold);
-            last_drive_power = total_correction * -1 / 2;
+            spinSide(1, gripPower(1, total_correction * -1)); // right side backward = clockwise
+            stopSide(0, brakeType::hold);
         } else {
             // ARC: total_correction is the power for the middle of the robot. The wheels on the
             // outside of the circle have further to go than the ones on the inside.
             double outside = total_correction * (radius + TRACK_WIDTH_INCH / 2) / radius;
             double inside = total_correction * (radius - TRACK_WIDTH_INCH / 2) / radius;
             if (bend > 0) {
-                moveLimited(outside, inside, request.max_speed); // circle bends right: the left side is on the outside
+                driveWithGrip(outside, inside, request.max_speed); // circle bends right: the left side is on the outside
             } else {
-                moveLimited(inside, outside, request.max_speed);
+                driveWithGrip(inside, outside, request.max_speed);
             }
         }
         telemetryUpdate(time, current_error, gyro_rate, total_correction, pid);
@@ -534,8 +568,8 @@ static void driveForward(const MotionRequest &request) {
         // which slows the left side and speeds up the right side to turn back
         double heading_correction = (start_heading - getInertial()) * FORWARD_HEADING_KP;
 
-        // (moveLimited keeps both sides under max_speed, heading correction included)
-        moveLimited(total_correction + heading_correction, total_correction - heading_correction, request.max_speed);
+        // (driveWithGrip keeps both sides under max_speed, heading correction included)
+        driveWithGrip(total_correction + heading_correction, total_correction - heading_correction, request.max_speed);
         telemetryUpdate(time, current_error, motor_rate, total_correction, pid);
         vexDelay(delay);
     }
@@ -573,18 +607,21 @@ static void aimPoint(const MotionRequest &request, double &x, double &y) {
     }
 }
 
-// The heading to drive along, from where the robot is now: towards the aim point, or, driving to a
-// pose and already close to it, the target heading (the carrot has nearly reached the target by then,
-// and this is where the robot would arrive at the exact heading)
-static double aimHeading(const MotionRequest &request, double heading, bool close) {
+// The heading to drive along, from where the robot is now: towards the aim point. Driving to a pose,
+// the last part is along the target heading instead (the carrot has nearly reached the target by
+// then, and this is where the robot arrives at the exact heading). The aim slides over to it, starting
+// twice POINT_AIM_DISTANCE from the target and all the way there at POINT_AIM_DISTANCE: switching at
+// once could mean a sudden hard turn, which skids the wheels, or swings wide when traction control
+// (DRIVE_SLIP_LIMIT) won't allow it.
+static double aimHeading(const MotionRequest &request, double heading) {
     double flip = request.backwards ? 180 : 0; // backwards: the back of the robot points at the aim
-    double aim;
-    if (request.type == MOTION_TO_POSE && close) {
-        aim = request.target_heading;
-    } else {
-        double ax, ay;
-        aimPoint(request, ax, ay);
-        aim = headingTo(ax, ay) + flip;
+    double ax, ay;
+    aimPoint(request, ax, ay);
+    double aim = headingTo(ax, ay) + flip;
+    if (request.type == MOTION_TO_POSE) {
+        double distance = hypot(request.target_x - getX(), request.target_y - getY());
+        double far = fmax(0, fmin(1, (distance - POINT_AIM_DISTANCE) / POINT_AIM_DISTANCE)); // 1 = the carrot, 0 = the heading
+        aim = request.target_heading + far * wrap180(aim - request.target_heading);
     }
     return heading + wrap180(aim - heading);
 }
@@ -602,7 +639,7 @@ static void driveToPoint(const MotionRequest &request) {
     double start_x = getX();
     double start_y = getY();
     double heading = getInertial();
-    double aim = aimHeading(request, heading, false); // the heading to drive along
+    double aim = aimHeading(request, heading); // the heading to drive along
     double first_error = distanceAhead(tx, ty, heading);
     double travel = request.backwards ? -1 : 1; // the way the robot drives: +1 forward, -1 backwards
     double ramp_from = rampFrom(travel); // still driving this way from a chained movement: no fresh start
@@ -634,7 +671,7 @@ static void driveToPoint(const MotionRequest &request) {
 
         // Keep aiming at the point, until we are close (a pose keeps aiming: at its heading)
         if (distance > POINT_AIM_DISTANCE || request.type == MOTION_TO_POSE) {
-            aim = aimHeading(request, heading, distance <= POINT_AIM_DISTANCE);
+            aim = aimHeading(request, heading);
         }
         double aim_error = aim - heading;
 
@@ -681,7 +718,7 @@ static void driveToPoint(const MotionRequest &request) {
             heading_correction = cap(heading_correction, most_steering);
             power = getSign(power) * fmin(fabs(power), fmax(request.max_speed - fabs(heading_correction), 0));
         }
-        moveLimited(power + heading_correction, power - heading_correction, request.max_speed);
+        driveWithGrip(power + heading_correction, power - heading_correction, request.max_speed);
         telemetryUpdate(time, ahead, motor_rate, power, pid);
         vexDelay(delay);
     }
@@ -696,7 +733,7 @@ static void runMotion(const MotionRequest &request) {
     } else if (request.type == MOTION_TO_POINT || request.type == MOTION_TO_POSE) {
         double start_time = Brain.timer(timeUnits::msec);
         double heading = getInertial();
-        double turn_needed = aimHeading(request, heading, false) - heading;
+        double turn_needed = aimHeading(request, heading) - heading;
         double distance = hypot(request.target_x - getX(), request.target_y - getY());
         // In the middle of a chain the robot is still driving: curving into the new direction is much
         // faster than turning on the spot (driveToPoint steers and slows down as needed). The last,

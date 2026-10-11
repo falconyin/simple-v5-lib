@@ -142,7 +142,8 @@ double getMotorRate(); // driving speed in inches/s
 // Basic driving
 // ============================================================================
 
-// left_speed and right_speed are percentages from -100 to 100
+// left_speed and right_speed are percentages from -100 to 100. The motors get exactly that, at once:
+// no traction control (DRIVE_SLIP_LIMIT is for the PID movements only), like driver control.
 void move(double left_speed, double right_speed);
 
 // Stop all drive motors. Uses DRIVE_BRAKE_MODE unless you pass a different one.

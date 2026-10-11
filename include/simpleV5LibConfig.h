@@ -103,6 +103,13 @@ const double CHAIN_STOP_AFTER_MS = 100;
 // brakeType::coast (roll freely), brakeType::brake (stop quickly), brakeType::hold (stop and push back)
 const brakeType DRIVE_BRAKE_MODE = brakeType::brake;
 
+// Traction control during movements: each side's power (percent) stays within this much of how fast
+// its wheels already turn (percent of full speed), so the movements never push the wheels into
+// spinning or skidding on the tiles (odometry from the drive motors would count the slip as driving).
+// Pushing against a wall or a robot still gets full power, a moment later.
+// Larger = harder starts and stops, if your wheels grip better; 200 = off. Driver control is never limited.
+const double DRIVE_SLIP_LIMIT = 40;
+
 // ---------- Driver control (tankDrive, arcadeDrive) ----------
 // Joystick values smaller than this (percent) are ignored, so a stick that doesn't sit exactly at 0 won't creep
 const double DRIVE_DEADBAND = 5;

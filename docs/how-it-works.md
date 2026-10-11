@@ -507,7 +507,8 @@ middle.
 ## 10. Setting up a new robot
 
 Most "the PID doesn't work" problems are really setup problems. `examples/robotSetup` runs these
-checks in order:
+checks in order. ([First day on a real robot](first-robot-checklist.md) puts them, the tuning, and
+every other check a new robot needs into one checklist.)
 
 - **`checkDevices()`** asks every device from `simpleV5LibConfig.h` if it is plugged in
   (`installed()`), reads the motor temperatures (V5 motors lose power above 55 °C), and checks

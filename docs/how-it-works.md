@@ -164,7 +164,7 @@ right = power - correction
 ```
 
 If both sides together would need more than `max_speed`, both are scaled down by the same
-amount (`moveLimited`), so the robot still steers the same way.
+amount (`scaleDown`, inside `driveWithGrip`), so the robot still steers the same way.
 
 ---
 

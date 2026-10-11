@@ -576,6 +576,11 @@ static void testTractionControl() {
     sim::gain[0] = sim::gain[1] = 1;
     check("  wheels that can't turn (a wall) still get full power", pushing_power > 99, pushing_power, 100);
     reset();
+    PID_forward_chain(24, 3);
+    sim::peak_cmd = 0;
+    PID_forward(24, 0.3, 0.2, FORWARD_TIMEOUT_MS, 20); // fast wheels: traction control would keep more than 20
+    check("  max_speed still wins right after a fast chained movement", sim::peak_cmd <= 20.01, sim::peak_cmd, 20);
+    reset();
     move(100, 100);
     check("  move() is never limited", sim::cmd_in.cmd[0] == 100, sim::cmd_in.cmd[0], 100);
     // What it is for (only the realistic runs have wheels that can slip; before traction control

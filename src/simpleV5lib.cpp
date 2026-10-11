@@ -183,11 +183,13 @@ static double gripPower(int side, double power) {
 }
 
 // How the movements drive: like move(), but neither side goes above limit (both sides are scaled
-// down together, so the robot still steers the same way), and with traction control
+// down together, so the robot still steers the same way), and with traction control. The limit (a
+// movement's max_speed) comes last: traction control may want more while the wheels still turn fast
+// (just after a faster chained movement), but you asked for no more than that.
 static void driveWithGrip(double left_speed, double right_speed, double limit) {
     scaleDown(left_speed, right_speed, limit);
-    spinSide(0, gripPower(0, left_speed));
-    spinSide(1, gripPower(1, right_speed));
+    spinSide(0, cap(gripPower(0, left_speed), limit));
+    spinSide(1, cap(gripPower(1, right_speed), limit));
 }
 
 // ============================================================================
@@ -484,12 +486,12 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
         }
 
         if (style == POINT_TURN) {
-            driveWithGrip(total_correction, total_correction * -1, 100); // positive = clockwise
+            driveWithGrip(total_correction, total_correction * -1, max_speed); // positive = clockwise
         } else if (style == LEFT_SWING) {
-            spinSide(0, gripPower(0, total_correction)); // left side forward = clockwise
+            spinSide(0, cap(gripPower(0, total_correction), max_speed)); // left side forward = clockwise
             stopSide(1, brakeType::hold);
         } else if (style == RIGHT_SWING) {
-            spinSide(1, gripPower(1, total_correction * -1)); // right side backward = clockwise
+            spinSide(1, cap(gripPower(1, total_correction * -1), max_speed)); // right side backward = clockwise
             stopSide(0, brakeType::hold);
         } else {
             // ARC: total_correction is the power for the middle of the robot. The wheels on the

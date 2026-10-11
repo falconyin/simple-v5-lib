@@ -22,6 +22,7 @@
 //   are pushed harder than the ground can hold spin faster than the robot moves.
 #define _USE_MATH_DEFINES // M_PI: the VEX SDK has it, but MinGW only declares it with this
 #include <cmath>
+#include <cstdarg>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -275,7 +276,11 @@ enum axisType { xaxis, yaxis, zaxis };
 enum rateUnits { dps };
 struct color { int c; static const color red, green, white; };
 inline const color color::red{1}, color::green{2}, color::white{3};
-struct screen { int lines = 0, clears = 0; void clearScreen(){ clears++; } void setCursor(int,int){} int print(const char*, ...){return 0;}
+// A screen keeps what was printed on it since it was last cleared (text, one line per print), so a
+// test can check which message the library showed
+struct screen { int lines = 0, clears = 0; std::string text; void clearScreen(){ clears++; text.clear(); } void setCursor(int,int){}
+  int print(const char *format, ...){ char line[256]; va_list values; va_start(values, format);
+    vsnprintf(line, sizeof(line), format, values); va_end(values); text += line; text += '\n'; return 0; }
   int printAt(int,int,const char*, ...){return 0;} int printAt(int,int,bool,const char*, ...){return 0;} void setPenColor(const color&){} void drawLine(int,int,int x2,int y2){ lines++; if (x2<0||x2>480||y2<0||y2>240) printf("OFFSCREEN %d %d\n", x2, y2); }
   bool pressing(){return false;} int xPosition(){return 0;} void clearLine(int){} };
 // The SD card keeps its files in memory. writes counts the writes, and fastest_write_speed is the

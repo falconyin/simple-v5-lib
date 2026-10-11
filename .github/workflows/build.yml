@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      vex_sdk_version:
+        description: "VEX SDK to build with (empty = the pinned one below), e.g. to try a newer SDK"
+        required: false
+        default: ""
 
 jobs:
   simulator-tests:
@@ -20,6 +25,11 @@ jobs:
     name: Build with the VEX V5 SDK
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      # Pinned, so a new SDK release can't turn an unchanged PR red. To move to a newer SDK, run this
+      # workflow by hand with its version (the versions are in the SDK's manifest.json, see
+      # ci/build_with_vex_sdk.sh), then change it here.
+      VEX_SDK_VERSION: ${{ inputs.vex_sdk_version || 'V5_20240802_15_00_00' }}
     steps:
       - uses: actions/checkout@v4
       - name: Install the ARM linker

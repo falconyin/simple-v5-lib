@@ -1176,28 +1176,39 @@ static void testCheckDevices() {
     sim::heat[PORT_RIGHTBACK] = 0;
 }
 
+// testDrivetrain must not only say something is wrong, but what: every mistake has its own
+// message on the Brain screen (and an earlier check can't stand in for a missing one)
+static bool showed(const char *message) {
+    return Brain.Screen.text.find(message) != std::string::npos;
+}
+
 static void testTestDrivetrain() {
     reset();
-    check("testDrivetrain: correct setup -> true", testDrivetrain(), 0, 0);
+    check("testDrivetrain: correct setup -> true", testDrivetrain() && showed("Drivetrain OK"), 0, 0);
     reset();
     sim::wrong_direction[PORT_RIGHTMIDDLE] = true;
     check("testDrivetrain: one motor set the wrong way -> false", !testDrivetrain(), 0, 0);
+    check("  says which motor, and its setting", showed("right middle spins backwards: change RM_DIRECTION"), 0, 0);
     sim::wrong_direction[PORT_RIGHTMIDDLE] = false;
     reset();
     for (int p = 0; p < 3; p++) sim::wrong_direction[p] = true;
     check("testDrivetrain: whole left side the wrong way -> false", !testDrivetrain(), 0, 0);
+    check("  says the left side drove backwards", showed("The left side drove backwards"), 0, 0);
     for (int p = 0; p < 3; p++) sim::wrong_direction[p] = false;
     reset();
     sim::sides_swapped = true;
     check("testDrivetrain: left and right swapped -> false", !testDrivetrain(), 0, 0);
+    check("  says the ports may be swapped", showed("left and right ports are swapped"), 0, 0);
     sim::sides_swapped = false;
     reset();
     sim::gyro_rate_flipped = true;
     check("testDrivetrain: gyro rate with the wrong sign -> false", !testDrivetrain(), 0, 0);
+    check("  says getGyroRate() has the wrong sign", showed("getGyroRate() has the wrong sign"), 0, 0);
     sim::gyro_rate_flipped = false;
     reset();
     sim::unplugged[PORT_LEFTBACK] = true;
     check("testDrivetrain: motor unplugged -> false", !testDrivetrain(), 0, 0);
+    check("  says which motor doesn't turn", showed("left back motor doesn't turn"), 0, 0);
     sim::unplugged[PORT_LEFTBACK] = false;
 }
 

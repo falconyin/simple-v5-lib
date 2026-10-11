@@ -329,6 +329,20 @@ int main() {
     PID_drive_to_point(12, 48, 0.5, 0.2); settle();
     sim::gain[1] = 1;
     check("drive to point (12, 48) with a weak right side", hypot(sim::x - 12, sim::y - 48) < 1, sim::x, sim::y);
+    reset();
+    // max_speed below CORNER_POWER: steering can take more than max_speed, and the drive power
+    // must stop at zero, not turn negative and back the robot away
+    PID_drive_to_point_async(12, 48, 0.5, 0.2, FORWARD_TIMEOUT_MS, 20);
+    double most_backwards = 0;
+    while (isMoving()) {
+        vexDelay(10); // first, or this reads what reset() left on the motors before the movement starts
+        if (hypot(sim::x - 12, sim::y - 48) > 6) {
+            most_backwards = fmin(most_backwards, (sim::cmd_in.cmd[0] + sim::cmd_in.cmd[1]) / 2);
+        }
+    }
+    settle();
+    check("drive to point at max speed 20: never backs away on the way", most_backwards >= 0, most_backwards, 0);
+    check("  and gets there", hypot(sim::x - 12, sim::y - 48) < 1, sim::x, sim::y);
 
     reset();
     PID_drive_to_point(3, 0, 1, 0.2); settle(); // close, and straight to the side: must turn, then drive

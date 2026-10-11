@@ -675,10 +675,11 @@ static void driveToPoint(const MotionRequest &request) {
             // left, down to standing still but never reversing. A wheel that reverses at speed skids,
             // and odometry counts the skid. So the harder the robot has to steer, the slower it
             // drives. When it hardly drives (lining up with a pose at the end) it still gets
-            // CORNER_POWER to turn with.
+            // CORNER_POWER to turn with. (With a max_speed below CORNER_POWER the steering can take
+            // all of it: the drive power then stops at zero, it must not turn negative and back away.)
             double most_steering = fmax(fmin(fabs(power), request.max_speed / 2), CORNER_POWER);
             heading_correction = cap(heading_correction, most_steering);
-            power = getSign(power) * fmin(fabs(power), request.max_speed - fabs(heading_correction));
+            power = getSign(power) * fmin(fabs(power), fmax(request.max_speed - fabs(heading_correction), 0));
         }
         moveLimited(power + heading_correction, power - heading_correction, request.max_speed);
         telemetryUpdate(time, ahead, motor_rate, power, pid);

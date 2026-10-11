@@ -364,7 +364,8 @@ so reset near the wall.
 5. **Steering comes first**: the outside wheel gets the full power, and the inside wheel what
    is left after steering, down to standing still but never reversing. So the harder the robot
    steers, the slower it drives. A wheel that reverses at speed skids, and odometry counts the
-   skid as driving.
+   skid as driving. With a low max speed the steering can take all of it: then the robot only
+   turns, and the drive power stops at zero rather than going negative and backing away.
 6. **Close to the point**, it stops re-aiming (`POINT_AIM_DISTANCE`): there, a tiny position
    change would swing the aim around wildly.
 

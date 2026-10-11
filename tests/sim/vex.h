@@ -22,6 +22,7 @@
 //   are pushed harder than the ground can hold spin faster than the robot moves.
 #define _USE_MATH_DEFINES // M_PI: the VEX SDK has it, but MinGW only declares it with this
 #include <cmath>
+#include <cstdarg>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -129,6 +130,9 @@ inline bool isRealistic() {
 inline bool realistic_at_start = (realistic(true), true);
 #endif
 inline double wheel_v[2] = {0, 0};  // what the wheels themselves do: the same as v unless they slip
+// How far the wheels have slipped forward or backwards so far (inches): what odometry from the drive
+// motors counts wrongly. Slip while turning in place, the same both ways, cancels out and isn't counted.
+inline double slipped = 0;
 inline double imu_heading = 0;      // what the IMU thinks the heading is (drifts away from heading)
 inline double calibrating_until = 0;
 // Noise that is the same every run, so a test that passes keeps passing
@@ -243,6 +247,7 @@ inline void step() {               // 1 ms
         dist[s] += wheel_v[s] * 0.001;
         peak = fmax(peak, fabs(v[s]));
     }
+    slipped += fabs((wheel_v[0] + wheel_v[1]) / 2 - (v[0] + v[1]) / 2) * 0.001;
     rate = (v[0] - v[1]) / track * 180 / M_PI;
     heading += rate * 0.001;
     imu_heading += (rate + real::imu_drift) * 0.001;
@@ -275,7 +280,11 @@ enum axisType { xaxis, yaxis, zaxis };
 enum rateUnits { dps };
 struct color { int c; static const color red, green, white; };
 inline const color color::red{1}, color::green{2}, color::white{3};
-struct screen { int lines = 0, clears = 0; void clearScreen(){ clears++; } void setCursor(int,int){} int print(const char*, ...){return 0;}
+// A screen keeps what was printed on it since it was last cleared (text, one line per print), so a
+// test can check which message the library showed
+struct screen { int lines = 0, clears = 0; std::string text; void clearScreen(){ clears++; text.clear(); } void setCursor(int,int){}
+  int print(const char *format, ...){ char line[256]; va_list values; va_start(values, format);
+    vsnprintf(line, sizeof(line), format, values); va_end(values); text += line; text += '\n'; return 0; }
   int printAt(int,int,const char*, ...){return 0;} int printAt(int,int,bool,const char*, ...){return 0;} void setPenColor(const color&){} void drawLine(int,int,int x2,int y2){ lines++; if (x2<0||x2>480||y2<0||y2>240) printf("OFFSCREEN %d %d\n", x2, y2); }
   bool pressing(){return false;} int xPosition(){return 0;} void clearLine(int){} };
 // The SD card keeps its files in memory. writes counts the writes, and fastest_write_speed is the
@@ -320,7 +329,7 @@ struct motor { int port;
     double dps = (mech() ? sim::seen().mech_v[port] : sign() * sim::seen().v[side()] / (sim::wheel_diam * M_PI) / RATIO * 360)
                  + sim::noise(sim::real::velocity_noise);
     if (mech()) return u == velocityUnits::pct ? dps / sim::MECH_MAXV * 100 : dps;
-    return dps; }
+    return u == velocityUnits::pct ? dps / (sim::MAXV / (sim::wheel_diam * M_PI) / RATIO * 360) * 100 : dps; }
   double current(currentUnits){ return mech() ? sim::seen().mech_current[port] : 0; }
   void stop(brakeType b){
     if (mech()) sim::cmd_in.mech_mode[port] = b == brakeType::coast ? 1 : b == brakeType::brake ? 2 : 3;

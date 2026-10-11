@@ -314,13 +314,15 @@ static void testOdometry() {
     PID_forward(48, 0.3, 0.2); PID_turn(90, 0.5, 0.2); PID_arc(180, 24, 0.5, 0.2);
     PID_swing(90, LEFT_SIDE, 0.5, 0.2); PID_forward(-24, 0.3, 0.2); settle();
     printf("   odometry (%.2f, %.2f), real (%.2f, %.2f)\n", getX(), getY(), sim::x, sim::y);
-    double odometry_tolerance = sim::isRealistic() ? 2 : 0.5; // real wheels slip a little at every start and stop
+    double odometry_tolerance = 0.5; // also on the realistic runs: traction control keeps the wheels from slipping
     check("odometry follows drives, turns, an arc and a swing", odometryError() < odometry_tolerance, odometryError(), odometry_tolerance);
 
     reset(); sim::gain[1] = 0.6;
     move(60, 60); vexDelay(1500); settle(); // weak right side: the robot drives a curve
     sim::gain[1] = 1;
-    check("odometry follows a curving drive", odometryError() < odometry_tolerance && hypot(sim::x, sim::y) > 30, odometryError(), hypot(sim::x, sim::y));
+    // (move() has no traction control: its jump to 60% spins the wheels on real tiles, and odometry counts the slip)
+    double curve_tolerance = sim::isRealistic() ? 2 : 0.5;
+    check("odometry follows a curving drive", odometryError() < curve_tolerance && hypot(sim::x, sim::y) > 30, odometryError(), hypot(sim::x, sim::y));
 
     settle(); sim::x = 10; sim::y = 20; sim::forgetReadings(); setPose(10, 20, 90);
     PID_forward(12, 0.3, 0.2); settle();
@@ -412,8 +414,8 @@ static void testChainedDriveToPoint() {
     // (aiming past the point keeps it near full speed: about 55 in/s here, about 35 without)
     check("  still moving fast at the handover", point_handover_speed > 45, point_handover_speed, 45);
     check("  curves around the corners, never stops", slowest > 5, slowest, 5);
-    // (a real robot's wheels slip a little in every corner, and without tracking wheels odometry counts the slip)
-    double corner_tolerance = sim::isRealistic() ? 4 : 0.5;
+    // (on the realistic runs, readings that arrive late still cost a little in each corner)
+    double corner_tolerance = sim::isRealistic() ? 1 : 0.5;
     check("  ends at the last point (48, 48)", hypot(sim::x - 48, sim::y - 48) < corner_tolerance, sim::x, sim::y);
     reset();
     PID_drive_to_point_chain(0, 24, 4);
@@ -441,8 +443,7 @@ static void testChainedDriveToPoint() {
     reset();
     PID_drive_to_point_chain(0, 24, 4);
     PID_drive_to_point(0, -12, 0.5, 0.2); // behind the robot: too far around to curve, turns first
-    // (turning around right after a chain skids a little on real wheels, and the odometry counts it)
-    check("chain then a point behind: turns around and gets there", hypot(sim::x, sim::y + 12) < (sim::isRealistic() ? 2 : 1), sim::x, sim::y);
+    check("chain then a point behind: turns around and gets there", hypot(sim::x, sim::y + 12) < 1, sim::x, sim::y);
     reset();
     PID_drive_to_point_chain(0, 24, 4);
     // The robot is still rolling, so it aims at the point from where it is when the turn starts
@@ -454,8 +455,7 @@ static void testChainedDriveToPoint() {
 
 // Drive to a pose: a point and the heading to arrive at, in one curve
 static void testDriveToPose() {
-    // (a curve skids a little on real wheels, and odometry from the drive motors counts the skid)
-    double pose_tolerance = sim::isRealistic() ? 4 : 1;
+    double pose_tolerance = 1;
     reset();
     PID_drive_to_pose_async(24, 24, 90, 0.5, 0.2);
     double heading_10in = 999; // the heading 10 inches before the pose: a curve has lined up with 90 by then
@@ -549,6 +549,49 @@ static void testGentleStart() {
     double speed_after_handover = getMotorRate();
     waitUntilDone();
     check("forward after a chained forward doesn't slow down", speed_after_handover >= handover_speed, speed_after_handover, handover_speed);
+}
+
+// Traction control (DRIVE_SLIP_LIMIT): a movement's power stays close to how fast the wheels turn
+static void testTractionControl() {
+    reset();
+    PID_turn_async(90, 0.5, 0.2);
+    vexDelay(5); // the turn's first power, given while the wheels still stand
+    double first_power = sim::cmd_in.cmd[0];
+    waitUntilDone();
+    check("traction control: a turn starts with DRIVE_SLIP_LIMIT, not 100", fabs(first_power - DRIVE_SLIP_LIMIT) < 1, first_power, DRIVE_SLIP_LIMIT);
+    reset();
+    PID_forward_chain(24, 3);
+    double rolling = getMotorRate();
+    PID_forward_async(-24, 0.3, 0.2); // still rolling forward fast, but this one goes backwards
+    vexDelay(5);
+    double reversing_power = sim::cmd_in.cmd[0];
+    waitUntilDone();
+    check("  reversing at speed: still pushes forward at first, easing down", rolling > 40 && reversing_power > 0, rolling, reversing_power);
+    reset();
+    sim::gain[0] = sim::gain[1] = 0; // the wheels can't turn, as if the robot pushed against a wall
+    PID_forward_async(24, 0.3, 0.2, 1000);
+    vexDelay(500);
+    double pushing_power = sim::cmd_in.cmd[0];
+    waitUntilDone();
+    sim::gain[0] = sim::gain[1] = 1;
+    check("  wheels that can't turn (a wall) still get full power", pushing_power > 99, pushing_power, 100);
+    reset();
+    PID_forward_chain(24, 3);
+    sim::peak_cmd = 0;
+    PID_forward(24, 0.3, 0.2, FORWARD_TIMEOUT_MS, 20); // fast wheels: traction control would keep more than 20
+    check("  max_speed still wins right after a fast chained movement", sim::peak_cmd <= 20.01, sim::peak_cmd, 20);
+    reset();
+    move(100, 100);
+    check("  move() is never limited", sim::cmd_in.cmd[0] == 100, sim::cmd_in.cmd[0], 100);
+    // What it is for (only the realistic runs have wheels that can slip; before traction control
+    // this route slipped about 6 inches there, and odometry from the drive motors ended 3 inches off)
+    reset();
+    double slipped_before = sim::slipped;
+    PID_drive_to_point(0, 24, 0.5, 0.2); PID_drive_to_point(24, 24, 0.5, 0.2); // a square: turn, drive, turn, ...
+    PID_drive_to_point(24, 48, 0.5, 0.2); PID_drive_to_point(48, 48, 0.5, 0.2);
+    PID_drive_to_point_chain(48, 24, 4); PID_drive_to_pose(24, 0, -90, 0.5, 0.2); // and back, chained into a pose
+    settle();
+    check("  a route of points, a chain and a pose doesn't slip", sim::slipped - slipped_before < 0.2, sim::slipped - slipped_before, odometryError());
 }
 
 // setHeading between chained movements: the next one keeps aiming the same real direction.
@@ -1176,28 +1219,39 @@ static void testCheckDevices() {
     sim::heat[PORT_RIGHTBACK] = 0;
 }
 
+// testDrivetrain must not only say something is wrong, but what: every mistake has its own
+// message on the Brain screen (and an earlier check can't stand in for a missing one)
+static bool showed(const char *message) {
+    return Brain.Screen.text.find(message) != std::string::npos;
+}
+
 static void testTestDrivetrain() {
     reset();
-    check("testDrivetrain: correct setup -> true", testDrivetrain(), 0, 0);
+    check("testDrivetrain: correct setup -> true", testDrivetrain() && showed("Drivetrain OK"), 0, 0);
     reset();
     sim::wrong_direction[PORT_RIGHTMIDDLE] = true;
     check("testDrivetrain: one motor set the wrong way -> false", !testDrivetrain(), 0, 0);
+    check("  says which motor, and its setting", showed("right middle spins backwards: change RM_DIRECTION"), 0, 0);
     sim::wrong_direction[PORT_RIGHTMIDDLE] = false;
     reset();
     for (int p = 0; p < 3; p++) sim::wrong_direction[p] = true;
     check("testDrivetrain: whole left side the wrong way -> false", !testDrivetrain(), 0, 0);
+    check("  says the left side drove backwards", showed("The left side drove backwards"), 0, 0);
     for (int p = 0; p < 3; p++) sim::wrong_direction[p] = false;
     reset();
     sim::sides_swapped = true;
     check("testDrivetrain: left and right swapped -> false", !testDrivetrain(), 0, 0);
+    check("  says the ports may be swapped", showed("left and right ports are swapped"), 0, 0);
     sim::sides_swapped = false;
     reset();
     sim::gyro_rate_flipped = true;
     check("testDrivetrain: gyro rate with the wrong sign -> false", !testDrivetrain(), 0, 0);
+    check("  says getGyroRate() has the wrong sign", showed("getGyroRate() has the wrong sign"), 0, 0);
     sim::gyro_rate_flipped = false;
     reset();
     sim::unplugged[PORT_LEFTBACK] = true;
     check("testDrivetrain: motor unplugged -> false", !testDrivetrain(), 0, 0);
+    check("  says which motor doesn't turn", showed("left back motor doesn't turn"), 0, 0);
     sim::unplugged[PORT_LEFTBACK] = false;
 }
 
@@ -1259,6 +1313,7 @@ int main() {
     testSwingChain();
     testAsyncTurns();
     testGentleStart();
+    testTractionControl();
     testSetHeadingInChain();
     if (TRACKING_SIDEWAYS_PORT >= 0) testSidewaysPush();
     testSetXY();

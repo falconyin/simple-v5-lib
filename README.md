@@ -19,7 +19,7 @@ This library uses simple language and easy logic. It helps you get the hang of i
 
 ## What's Included
 
-* **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest`, `PID_swing` and `PID_arc` (drive along a curve), with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight.
+* **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest`, `PID_swing` and `PID_arc` (drive along a curve), with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight, and traction control (`DRIVE_SLIP_LIMIT`) keeps the wheels from spinning or skidding on the tiles, which would throw the distance measurements off.
 * **Odometry:** the robot keeps track of where it is on the field (x, y in inches), and `PID_drive_to_point` / `PID_turn_to_point` drive to field points. `PID_drive_to_pose` gets to a point *and* arrives facing a heading, in one curve. Works with just the drive motors and inertial sensor; tracking wheels are optional. Correct the position against a wall, by touching it (`setX` / `setY`) or with a distance sensor (`resetXFromWall` / `resetYFromWall`).
 * **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes. `PID_drive_to_point_chain` turns a list of field points into one smooth path.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
@@ -136,7 +136,7 @@ cancelMovement();                       // at the start of usercontrol(), in cas
 
 Every pull request is checked automatically (`.github/workflows/build.yml`):
 * **Simulator tests:** `tests/run_tests.sh` builds the library against a small drivetrain simulator (`tests/sim/vex.h`) and checks that every movement ends where it should. It runs the tests on a perfect robot and again on a "real" one: sensor readings and motor commands 10 ms late, noisy speed readings, a drifting inertial sensor, a drained battery, and wheels that slip when pushed too hard. You can run it on your own computer with any C++17 compiler.
-* **VEX SDK build:** `ci/build_with_vex_sdk.sh` downloads the official VEXcode V5 SDK, compiles the library for the V5 brain, and links every example into a full program, the same `.bin` file VEXcode downloads to the brain.
+* **VEX SDK build:** `ci/build_with_vex_sdk.sh` downloads the official VEXcode V5 SDK (a fixed version, set in `build.yml`), compiles the library for the V5 brain, and links every example into a full program, the same `.bin` file VEXcode downloads to the brain.
 
 ## Feedback & Support
 

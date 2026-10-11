@@ -71,9 +71,10 @@ and turns shake wildly. ([how-it-works §10](how-it-works.md#10-setting-up-a-new
 Still in `examples/robotSetup`:
 
 - [ ] **`measureWheelSize(48)`**: push the robot by hand, straight forward, exactly 48 inches
-  along a tape measure. Copy `WHEEL_DIAMETER_INCH` (and `TRACKING_WHEEL_DIAMETER_INCH`) into
-  the config. A wheel size far from what is printed on the wheel means
-  `MOTOR_TO_WHEEL_GEAR_RATIO` is wrong.
+  along a tape measure. Copy `WHEEL_DIAMETER_INCH` into the config, and with a forward tracking
+  wheel also `TRACKING_WHEEL_DIAMETER_INCH` (both tracking wheels use it). A wheel size far from
+  what is printed on the wheel means `MOTOR_TO_WHEEL_GEAR_RATIO` is wrong. With only a sideways
+  tracking wheel, nothing measures it: use what is printed on it, and step 4 checks it.
 - [ ] **`measureTrackWidth()`** spins the robot 3 times. Copy `TRACK_WIDTH_INCH` (and the tracking
   wheel offsets). The `12.0` in the config is only a placeholder: arcs are wrong until you
   replace it. The result is often a little more than the tape measure says; use the measured one.
@@ -100,6 +101,9 @@ int main() {
 - [ ] Push the robot 48 inches straight forward: y goes to about 48, x stays near 0.
 - [ ] Turn it by hand to face right: heading about 90 (clockwise is positive).
 - [ ] Push it 24 inches forward (to the right on the field): x goes up by about 24, y stays.
+- [ ] With a sideways tracking wheel: push the robot 24 inches sideways (to its left) without
+  turning it: y goes up by about 24, x stays. Wrong direction: change
+  `TRACKING_SIDEWAYS_REVERSED`. Too far or not far enough: `TRACKING_WHEEL_DIAMETER_INCH` is off.
 - [ ] Leave it running a few minutes, then push it again: the numbers still change. (They
   come from a background task; this checks it keeps running.)
 
@@ -107,24 +111,29 @@ Off by a few percent in one direction only? Redo step 3. ([how-it-works §7](how
 
 ## 5. Tune turns
 
-Run `examples/tuning` (the controller buttons are explained at the top of its `main.cpp`). X
-picks TURN; A tries a 90° turn, the next A turns back. Follow the
+Run `examples/tuning` (the controller buttons are explained at the top of its `main.cpp`). Steps
+5 to 7 are one tuning session: it starts on TURN, and X moves on to FORWARD, SWING, then ARC.
+A tries a 90° turn, the next A turns back. Follow the
 [tuning guide](how-it-works.md#9-tuning-step-by-step): kI and kD to 0, raise kP until it swings
 around the target, raise kD until the overshoot (`ov`) is near 0, kI only if it stops short.
 
-- [ ] `TURN_KP`, `TURN_KI`, `TURN_KD` tuned on the robot. Press B to save them, and copy them into
-  the config.
-- [ ] Also try a 180° and a 45° turn in your own code (`PID_turn_relative(180, 0.5, 0.2)`): good
-  at 90° doesn't always mean good at 180°.
+**Don't press B until step 7 is done**: B saves all four sets of gains on the SD card and ends
+the tuner. If you have to stop in between, press B anyway: the next run of `examples/tuning`
+loads what was saved, and you carry on from there (press X until you're back at the step).
+
+- [ ] `TURN_KP`, `TURN_KI`, `TURN_KD` tuned on the robot.
+- [ ] Later, with the gains in the config, also try a 180° and a 45° turn in your own code
+  (`PID_turn_relative(180, 0.5, 0.2)`): good at 90° doesn't always mean good at 180°.
 - [ ] Turns stop just short and stay there? Raise `TURN_MIN_SPEED` a little before reaching for kI.
 
 ## 6. Tune driving forward
 
-X picks FORWARD; A drives 24 inches, the next A drives back.
+Press X once: FORWARD. A drives 24 inches, the next A drives back.
 
 - [ ] **`FORWARD_KD`: start from 0 and tune it again.** The `0.78` in the config was tuned while
   the D part of the PID had the wrong sign (it pushed instead of braking), so it means nothing now.
-- [ ] `FORWARD_KP`, `FORWARD_KI` tuned. Try a short (6 inch) and a long (48 inch) drive too.
+- [ ] `FORWARD_KP`, `FORWARD_KI` tuned. Later, in your own code, try a short (6 inch) and a long
+  (48 inch) drive too.
 - [ ] **`FORWARD_HEADING_KP`** (keeps the robot straight, `1.0` is only a starting value): drive
   48 inches and look at the heading before and after. It drifted off by more than a degree or
   two: raise it. The robot weaves left and right while driving: lower it.
@@ -134,10 +143,12 @@ X picks FORWARD; A drives 24 inches, the next A drives back.
 The swing and arc gains in the config are copies of the turn and forward gains: nobody has
 tuned them yet.
 
-- [ ] X picks SWING (a 90° swing on the left side). Swings often need a bigger kP than turns,
+- [ ] Press X: SWING (a 90° swing on the left side). Swings often need a bigger kP than turns,
   because only one side pushes. Tune `SWING_KP`, `SWING_KI`, `SWING_KD`.
-- [ ] X picks ARC (a 90° arc along a 24 inch circle). Arcs need `TRACK_WIDTH_INCH` from step 3
+- [ ] Press X: ARC (a 90° arc along a 24 inch circle). Arcs need `TRACK_WIDTH_INCH` from step 3
   first. Tune `ARC_KP`, `ARC_KI`, `ARC_KD`.
+- [ ] Now press B. Copy the gains it shows (all four sets) into the config, so they are right
+  even without the SD card.
 
 ## 8. Traction control
 
@@ -152,7 +163,9 @@ so a movement can't spin the wheels at the start or skid them when braking. 40 i
 - [ ] No slipping at all, and starts and stops feel slow and soft: try a higher value (60). Keep
   the highest value that doesn't slip.
 - [ ] After the route, measure where the robot really is with a tape measure and compare it with
-  `getX()`/`getY()`. Slipping wheels count inches the robot didn't drive.
+  `getX()`/`getY()`. Without tracking wheels, odometry counts the drive wheels' turns, so
+  slipping wheels count inches the robot didn't drive. (Tracking wheels don't slip, so with them
+  this check says little about traction control.)
 - [ ] With the robot on a stand, wheels in the air, run `move(50, 50)` and print
   `leftDrive.velocity(velocityUnits::pct)`. It should say about 50. Traction control compares
   power with that number: if it is far off (say 30), it holds the power back too much, and starts
@@ -169,10 +182,22 @@ smooth path. `POINT_HEADING_KP`, `POINT_HEADING_KD` and `POSE_LEAD` were tuned o
 - [ ] The robot weaves around the line to the point: lower `POINT_HEADING_KP`, or raise
   `POINT_HEADING_KD`.
 - [ ] It turns too slowly towards the point and drives a wide curve: raise `POINT_HEADING_KP`.
-- [ ] On a `PID_drive_to_pose` curve it swings past the direction it should be going, then
-  corrects hard (the wheels may skid): raise `POINT_HEADING_KD`.
-- [ ] `PID_drive_to_pose` arrives facing the wrong way and turns hard at the end: raise
-  `POSE_LEAD` (a wider curve). Its curve is too wide for the field: lower it.
+`examples/odometry` only drives to points. For poses, a short program of your own, with 3 tiles
+of room ahead and 2 to the right:
+
+```cpp
+int main() {
+    calibrateInertial();
+    setPose(0, 0, 0);
+    PID_drive_to_pose(24, 48, 90, 0.5, 0.2); // one curve to (24, 48), arriving facing right
+}
+```
+
+- [ ] It ends near (24, 48), facing about 90. Measure it with a tape measure.
+- [ ] On the curve it swings past the direction it should be going, then corrects hard (the
+  wheels may skid): raise `POINT_HEADING_KD`.
+- [ ] It arrives facing the wrong way and turns hard at the end: raise `POSE_LEAD` (a wider
+  curve). Its curve is too wide for the field: lower it.
 
 ([how-it-works §8](how-it-works.md#8-driving-to-a-point))
 
@@ -211,13 +236,27 @@ intake. Run `examples/mechanisms` with your motor ports.
 
 ## 12. SD card
 
-Writing to an SD card is slow, so the log is written between movements, while the robot stands
-still. Nobody has measured how long that takes on a real Brain.
+Writing to an SD card is slow, so the log waits in memory and is written once the robot stands
+still with no movement running. Movements that follow each other right away don't leave that
+moment, so the writing usually happens when your code pauses, for example waiting for an intake.
+If the next movement starts during the writing, it starts late. Nobody has measured how long the
+writing takes on a real Brain. This program measures it:
 
-- [ ] Run a route of several movements (not chained) twice: once with `logToSDCard(true)` and
-  once without. Time both with `Brain.timer(timeUnits::msec)` at the start and the end. More than
-  about a tenth of a second slower with logging, or a visible pause between movements: please
-  report the times.
+```cpp
+int main() {
+    calibrateInertial();
+    logToSDCard(true);         // run it a second time with false, to compare
+    PID_forward(24, 0.3, 0.2); // a movement to log
+    wait(20, msec);            // a pause: the writing starts now
+    double start = Brain.timer(timeUnits::msec);
+    PID_forward(-24, 0.3, 0.2); // can't start until the writing is done
+    printf("took %.0f ms\n", Brain.timer(timeUnits::msec) - start);
+}
+```
+
+- [ ] Run it with logging on and with logging off. The difference is how much longer than the
+  20 ms pause the writing took. No difference: it fits in the pause, nobody will notice it. More
+  than about a tenth of a second: please report the numbers.
 
 ---
 
@@ -236,7 +275,7 @@ with what you saw.
 | How hard the wheels can push before slipping | step 8 | best `DRIVE_SLIP_LIMIT` far from 40 |
 | How late a distance sensor reads | step 10 | worse results right after moving |
 | A motor's hold mode after several stops in a row | step 11 | the arm sags after a few moves |
-| How long an SD card write takes | step 12 | a pause between movements |
+| How long an SD card write takes | step 12 | a movement after a pause starts late |
 | `setPose` while the robot moves | below | the position jumps back to the old value |
 
 The last one: the simulator switches between tasks only when one of them waits, a real Brain

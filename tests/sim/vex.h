@@ -12,6 +12,9 @@
 //   and where they sit on the robot. bump() shoves the robot sideways, like another robot would.
 // - Distance sensors measure to the field walls (a square, 144 inches wide, centered on (0, 0)),
 //   or to an obstacle the test puts in front of them.
+// - Motors on ports 7-21 are mechanisms (an arm, an intake), each on its own: speed follows the
+//   command, a load can pull it down like gravity, hold mode pushes back to where it stopped, and
+//   a jam stops it dead while it draws a lot of current.
 // - Tasks are real threads, but only one runs at a time and they only switch inside vexDelay /
 //   wait, like on the V5 brain. Time is simulated, so the tests run much faster than real time.
 #define _USE_MATH_DEFINES // M_PI: the VEX SDK has it, but MinGW only declares it with this
@@ -96,7 +99,41 @@ inline double distanceSeen(int port) {
     if (obstacle[port] > 0) seen = fmin(seen, obstacle[port]);
     return seen <= 78 ? seen : -1; // the V5 distance sensor sees up to 2 m
 }
+// Mechanism motors (ports 7-21, by port index like the setup mistakes): one motor each
+const int FIRST_MECH_PORT = 6;
+const double MECH_MAXV = 600;         // deg/s at 100% power
+inline double mech_cmd[21] = {};      // commanded power, %
+inline int mech_mode[21] = {};        // 0 = voltage, 1 = coast, 2 = brake, 3 = hold
+inline double mech_v[21] = {};        // deg/s
+inline double mech_pos[21] = {};      // deg
+inline double mech_hold_at[21] = {};  // where hold mode keeps it
+inline double mech_load[21] = {};     // % of power pulling it towards smaller positions (gravity on a lift)
+inline bool mech_jammed[21] = {};     // something stops it from turning
+// Hold mode: the motor's own controller pushes back with this much power (%) per degree off
+const double HOLD_POWER_PER_DEG = 20;
+inline double mechPower(int p) {      // the power the motor really pushes with
+    if (mech_mode[p] == 0) return mech_cmd[p];
+    if (mech_mode[p] == 3) return fmax(-100, fmin(100, (mech_hold_at[p] - mech_pos[p]) * HOLD_POWER_PER_DEG));
+    return 0;
+}
+// Current in amps: a stalled motor at full power draws 2.5 A (the V5 limit), a free-spinning one little
+inline double mechCurrent(int p) {
+    double v_pct = mech_v[p] / MECH_MAXV * 100;
+    return fmin(2.5, 2.5 * fabs(mechPower(p) - v_pct) / 100 + (mechPower(p) != 0 ? 0.1 : 0));
+}
+inline void stepMechanisms() {
+    for (int p = FIRST_MECH_PORT; p < 21; p++) {
+        double target = (mechPower(p) - mech_load[p]) / 100 * MECH_MAXV;
+        if (mech_mode[p] == 2) target = 0;  // brake: stops, but doesn't push back
+        if (mech_jammed[p]) target = 0;
+        double tau = mech_mode[p] == 1 ? 0.3 : 0.05;
+        mech_v[p] += (target - mech_v[p]) * 0.001 / tau;
+        if (mech_jammed[p]) mech_v[p] = 0;
+        mech_pos[p] += mech_v[p] * 0.001;
+    }
+}
 inline void step() {               // 1 ms
+    stepMechanisms();
     for (int s = 0; s < 2; s++) {
         double target = mode[s] == 0 ? cmd[s] / 100 * MAXV * gain[s] : 0;
         double tau = mode[s] == 0 ? TAU : (mode[s] == 1 ? 0.5 : 0.03);
@@ -159,20 +196,39 @@ struct button { bool down = false; bool pressing(){ return down; } };
 struct controller { axis Axis1, Axis2, Axis3, Axis4; button ButtonLeft, ButtonRight, ButtonUp, ButtonDown, ButtonA, ButtonB, ButtonX, ButtonY;
   screen Screen; int rumbles = 0; void rumble(const char*){ rumbles++; } };
 const double RATIO = 2.0 / 3.0;
+enum class currentUnits { amp };
 struct motor { int port;
   motor(int p, gearSetting, bool) : port(p) {}
+  bool mech(){ return port >= sim::FIRST_MECH_PORT; } // a mechanism motor, not the drivetrain
   int side(){ return sim::sideOf(port); }
   double sign(){ return sim::unplugged[port] ? 0 : (sim::wrong_direction[port] ? -1 : 1); }
   bool installed(){ return !sim::unplugged[port]; }
   double temperature(temperatureUnits){ return 35 + sim::heat[port]; }
-  double position(rotationUnits){ return sign() * sim::dist[side()] / (sim::wheel_diam * M_PI) / RATIO; }
-  double velocity(velocityUnits){ return sign() * sim::v[side()] / (sim::wheel_diam * M_PI) / RATIO * 360; }
-  void stop(brakeType b){ sim::mode[side()] = b == brakeType::coast ? 1 : 2; }
+  double position(rotationUnits u){
+    if (mech()) return sim::mech_pos[port] / (u == rotationUnits::rev ? 360 : 1);
+    return sign() * sim::dist[side()] / (sim::wheel_diam * M_PI) / RATIO; }
+  void setPosition(double value, rotationUnits u){ if (mech()) sim::mech_pos[port] = value * (u == rotationUnits::rev ? 360 : 1); }
+  double velocity(velocityUnits u){
+    if (mech()) return u == velocityUnits::pct ? sim::mech_v[port] / sim::MECH_MAXV * 100 : sim::mech_v[port];
+    return sign() * sim::v[side()] / (sim::wheel_diam * M_PI) / RATIO * 360; }
+  double current(currentUnits){ return mech() ? sim::mechCurrent(port) : 0; }
+  void stop(brakeType b){
+    if (mech()) { int m = b == brakeType::coast ? 1 : b == brakeType::brake ? 2 : 3;
+      if (m == 3 && sim::mech_mode[port] != 3) sim::mech_hold_at[port] = sim::mech_pos[port];
+      sim::mech_mode[port] = m; return; }
+    sim::mode[side()] = b == brakeType::coast ? 1 : 2; }
   void spin(directionType, double mv, voltageUnits){
     double pct = fmax(-100, fmin(100, mv / 120));
+    if (mech()) { sim::mech_mode[port] = 0; sim::mech_cmd[port] = pct; return; }
     sim::mode[side()] = 0; sim::motor_cmd[port] = sign() * pct; sim::updateSide(side());
     sim::peak_cmd = fmax(sim::peak_cmd, fabs(pct)); } };
+// Like the SDK: position and velocity are the first motor's, current is the total of all of them
 struct motor_group { std::vector<motor*> m; template<class... M> motor_group(M&... all) : m{&all...} {}
+  int32_t count(){ return (int32_t)m.size(); }
+  double position(rotationUnits u){ return m[0]->position(u); }
+  void setPosition(double value, rotationUnits u){ for (motor *x : m) x->setPosition(value, u); }
+  double velocity(velocityUnits u){ return m[0]->velocity(u); }
+  double current(currentUnits u){ double sum = 0; for (motor *x : m) sum += x->current(u); return sum; }
   void stop(brakeType b){ for (motor *x : m) x->stop(b); } void spin(directionType d, double x, voltageUnits u){ for (motor *mm : m) mm->spin(d, x, u); } };
 struct rotation { int port; bool reversed;
   rotation(int p, bool r = false) : port(p), reversed(r) {}

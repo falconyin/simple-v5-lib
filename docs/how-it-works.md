@@ -15,6 +15,7 @@ to the code that does it.
 - [8. Driving to a point](#8-driving-to-a-point)
 - [9. Tuning, step by step](#9-tuning-step-by-step)
 - [10. Setting up a new robot](#10-setting-up-a-new-robot)
+- [11. Mechanisms: an arm that holds, an intake that unjams](#11-mechanisms-an-arm-that-holds-an-intake-that-unjams)
 
 ---
 
@@ -449,3 +450,82 @@ checks in order:
 - **`measureWheelSize(48)`**: you push the robot exactly 48 inches by hand. If the library
   counted 47 inches, the wheels are really `48 / 47` times as big as the config says. A
   wrong `MOTOR_TO_WHEEL_GEAR_RATIO` shows up here too, as a wheel size that is way off.
+
+---
+
+## 11. Mechanisms: an arm that holds, an intake that unjams
+
+Code: `src/mechanisms.cpp`. Example: `examples/mechanisms`.
+
+### One background task for all of them
+
+An `Arm` or `Intake` is made outside any function, next to its motors. That registers it with
+the library, but doesn't start anything yet: it is too early to start a task before `main()`
+runs. The first command (`moveTo`, `spin`, ...) starts one background task, which looks after
+every Arm and Intake every 10 ms.
+
+Your code never moves the motors itself. `moveTo` only writes down the new target and adds one
+to a counter (`request`). The task sees that the counter changed and starts the new command.
+So there is only ever one piece of code telling the motors what to do, and your code never
+has to wait. It is the same idea as the motion task in section 5.
+
+Driver control calls the same command every 20 ms (`arm.moveTo(ARM_SCORE)` for as long as
+the button is held, `intake.spin(100)` for as long as R1 is). Starting over every time would
+reset the PID and the jam timer 50 times a second. So a command that is the same as the last
+one is ignored.
+
+### Arm: move with PID, hold with the motor
+
+`moveTo` is a PID loop like `PID_turn`, but in degrees of the motor: the error is
+`target - position()`, the D part brakes with the motor's speed. It counts as there when it
+stays within `ARM_TOLERANCE` for `ARM_SETTLE_MS`, like section 2.
+
+Then it stops the motor with `brakeType::hold`. In hold mode the motor runs its own position
+control, inside the motor, and pushes back whenever something moves it away. That is what
+keeps a heavy arm up, and it costs nothing to tune. If the arm doesn't get there within
+`ARM_TIMEOUT_MS` (stuck on something), it holds wherever it got to, and `waitUntilDone()`
+returns false.
+
+Gravity is the hard part of moving an arm. While going down, gravity helps, and P alone stops
+where its push up is just as strong as gravity: below the target, by `gravity / kP` degrees.
+Then I slowly pushes it the rest of the way. So for a heavy arm:
+
+- `ARM_INTEGRAL_RANGE` must be bigger than that sag, or I never starts.
+- A bigger kP sags less, but too big makes it swing on the way up.
+
+`manual(power)` is for driver control. A stick that isn't at 0 drives the arm; letting go
+(power 0, or inside `DRIVE_DEADBAND`) holds it right where it is. A 0 while a `moveTo` is
+running is ignored, so a stick at rest doesn't stop a button's `moveTo`.
+
+`setLimits` stops the arm at its lowest and highest position. `moveTo` targets are clamped
+into the range. With the stick, the arm holds when it reaches a limit. It keeps holding for as
+long as the stick pushes that way, even if the held arm sags back a little below the limit.
+Otherwise it would drive up, hold, sag, drive up, ... many times a second.
+
+### Intake: when is it jammed?
+
+A motor that is told to spin but can't turn draws a lot of current. Here is why:
+A spinning motor makes a voltage of its own that works against the battery
+(a motor is also a generator), and the faster it spins, the less current flows. Stalled, that
+counter-voltage is gone. So a jam is:
+
+- more than `INTAKE_JAM_CURRENT` amps per motor (`current()` of a `motor_group` is all its
+  motors together, so it is divided by `count()`), **and**
+- slower than `INTAKE_JAM_SPEED` percent, **and**
+- both for at least `INTAKE_JAM_MS`.
+
+Each condition alone gets it wrong:
+
+- Starting up also draws a lot of current at low speed, for a moment: that's why it must last
+  `INTAKE_JAM_MS`.
+- A heavy but still turning intake draws a lot too: that's why it must also be slow.
+- An intake running slowly on purpose is slow: that's why the current must be high.
+
+The downside of the current rule: the less power the motor is given, the less current it draws
+when stalled, so a jam at low power can go unnoticed.
+
+When it jams, `spin(power)` runs the intake the other way at the same power for
+`INTAKE_UNJAM_MS`, to let the stuck piece go, then forward again. If it is still stuck, it
+jams again, and backs off again. With `spin(power, false)` it stops instead and `isJammed()`
+stays true until you give it a new command. "Can't turn any more" is also what happens when
+a game piece is all the way in, so that's a way to know it is.

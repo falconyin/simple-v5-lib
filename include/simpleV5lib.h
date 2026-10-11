@@ -1,6 +1,7 @@
 #ifndef SIMPLEV5LIB_H
 #define SIMPLEV5LIB_H
 #include "simpleV5LibConfig.h"
+#include <atomic>
 
 using namespace vex;
 
@@ -209,7 +210,7 @@ void PID_arc(double target, double radius, double error_tolerance, double speed_
 //
 //   PID_forward_async(36, 0.3, 0.2);
 //   waitUntilTraveled(12);       // after 12 inches...
-//   intake.spin(forward);        // ...start the intake
+//   intake.spin(100);            // ...start the intake (an Intake, see Mechanisms below)
 //   waitUntilDone();             // wait for the drive to finish
 // ============================================================================
 
@@ -404,6 +405,134 @@ void tankDrive();
 
 // Left stick up/down drives forward and back, right stick left/right turns
 void arcadeDrive();
+
+// ============================================================================
+// Mechanisms: an arm that holds its position, an intake that frees itself when it jams
+// Make them once, next to your motors, outside any function (they must exist the whole program):
+//   motor armMotor(PORT9, ratio36_1, false);
+//   Arm arm(armMotor);                 // or Arm arm(armMotors) with a motor_group
+//   motor intakeMotor(PORT10, ratio6_1, false);
+//   Intake intake(intakeMotor);
+// A background task moves them, so your code goes on right away, while driving too.
+// Up to 8 Arms and 8 Intakes (more do nothing, and say so in the terminal).
+// See examples/mechanisms.
+// ============================================================================
+
+// A lift or an arm: anything that moves to a position and has to stay there.
+// Positions are in degrees of the motor (what position() says), 0 = where it was when the program
+// started, or the number you gave resetPosition. Find your positions by moving the arm and reading
+// position() on the Brain screen.
+class Arm {
+public:
+    // kp, ki, kd: the PID gains for moving (power in percent per degree), ARM_KP, ... unless you pass others
+    Arm(motor &one_motor, double kp = ARM_KP, double ki = ARM_KI, double kd = ARM_KD);
+    Arm(motor_group &motors, double kp = ARM_KP, double ki = ARM_KI, double kd = ARM_KD);
+
+    // Move to this position and stay there: the motor's hold mode keeps it there once it arrives.
+    // Returns right away. Calling it again with the same position does nothing, so it is fine to
+    // call it every time through the driver control loop while a button is pressed.
+    void moveTo(double degrees, double max_speed = 100);
+
+    // Wait until the arm got to where moveTo sent it. Returns false if it didn't make it within
+    // ARM_TIMEOUT_MS (then it holds wherever it got to).
+    bool waitUntilDone();
+    bool isDone(); // true when it is there (or gave up), false while still moving
+
+    // For driver control, call it every time through the loop: power in percent, from a joystick or
+    // buttons. 0 = hold where it is now. While a moveTo is running, 0 lets it finish.
+    //   arm.manual(Controller.Axis2.position(percentUnits::pct));
+    void manual(double power);
+
+    // The arm can't go lower than lowest or higher than highest, with moveTo or manual.
+    // Set them after resetPosition, in the same degrees.
+    void setLimits(double lowest, double highest);
+
+    // "The arm is at this position now", for example at the start with the arm resting all the
+    // way down: resetPosition(0). Call it while the arm is not moving.
+    void resetPosition(double degrees = 0);
+
+    double position(); // degrees
+
+    // Stop holding, let the arm hang loose (coast)
+    void release();
+
+    // Called every 10 ms by the background task, you don't need to call it
+    void update();
+
+private:
+    motor_group own_motors; // used when the Arm was made with one motor
+    motor_group *motors;
+    PIDController pid;
+    // Set by your code, picked up by the background task
+    std::atomic<double> lowest;
+    std::atomic<double> highest;
+    std::atomic<int> request; // goes up by one for every new command
+    std::atomic<int> command;
+    std::atomic<double> target;
+    std::atomic<double> max_speed;
+    std::atomic<double> manual_power;
+    int last_command;         // the last command your code gave, to ignore repeats
+    bool registered;          // false if there were already 8 Arms: then this one does nothing
+    // Set by the background task: the last request it has finished, and if that moveTo got there.
+    // Done means finished_request == request, so an old move finishing can't count for a new one.
+    std::atomic<int> finished_request;
+    std::atomic<bool> arrived;
+    void init();
+    void send(int new_command);
+    // Only used by the background task
+    int seen_request = 0;
+    int state;
+    double start_time = 0;
+    double settle_start = -1;
+    int held_at_limit = 0; // 1 = holding at the highest because the stick pushes up, -1 = at the lowest
+    void begin(int new_command);
+};
+
+// An intake (or a conveyor, a roller, ...): spins until told to stop, and notices when it is stuck.
+// A jam is when the motors draw more than INTAKE_JAM_CURRENT amps (each), but turn slower than
+// INTAKE_JAM_SPEED percent, for INTAKE_JAM_MS. A motor that is told to spin but can't turn draws
+// a lot of current.
+class Intake {
+public:
+    Intake(motor &one_motor);
+    Intake(motor_group &motors);
+
+    // Spin at this power, in percent (negative = the other way). Returns right away.
+    // unjam = true:  when it jams, it runs the other way for INTAKE_UNJAM_MS, then goes on.
+    // unjam = false: when it jams, it stops (and isJammed() says so) until you call stop() or spin
+    //                with a different power. Handy to know a game piece is all the way in.
+    // Fine to call every time through the driver control loop: the same power again changes nothing.
+    void spin(double power, bool unjam = true);
+    void stop();
+
+    // true while it is jammed: running the other way to free it, or stopped (unjam = false)
+    bool isJammed();
+    // How many times it has jammed since the program started
+    int jamCount();
+
+    // Called every 10 ms by the background task, you don't need to call it
+    void update();
+
+private:
+    motor_group own_motors;
+    motor_group *motors;
+    // Set by your code, picked up by the background task
+    std::atomic<int> request;
+    std::atomic<double> power;
+    std::atomic<bool> unjam;
+    std::atomic<bool> jammed; // set by the background task
+    std::atomic<int> jams;    // set by the background task
+    double last_power;        // the last power your code gave, to ignore repeats
+    bool last_unjam;
+    bool registered; // false if there were already 8 Intakes: then this one does nothing
+    void init();
+    // Only used by the background task
+    int seen_request = 0;
+    int state;
+    double running_power = 0;
+    double jam_start = -1;   // when it started to look jammed, -1 = it doesn't
+    double unjam_start = 0;
+};
 
 // ============================================================================
 // Autonomous selector

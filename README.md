@@ -133,7 +133,7 @@ cancelMovement();                       // at the start of usercontrol(), in cas
 ## Testing
 
 Every pull request is checked automatically (`.github/workflows/build.yml`):
-* **Simulator tests:** `tests/run_tests.sh` builds the library against a small drivetrain simulator (`tests/sim/vex.h`) and checks that every movement ends where it should. You can run it on your own computer with any C++17 compiler.
+* **Simulator tests:** `tests/run_tests.sh` builds the library against a small drivetrain simulator (`tests/sim/vex.h`) and checks that every movement ends where it should. It runs the tests on a perfect robot and again on a "real" one: sensor readings and motor commands 10 ms late, noisy speed readings, a drifting inertial sensor, a drained battery, and wheels that slip when pushed too hard. You can run it on your own computer with any C++17 compiler.
 * **VEX SDK build:** `ci/build_with_vex_sdk.sh` downloads the official VEXcode V5 SDK, compiles the library for the V5 brain, and links every example into a full program, the same `.bin` file VEXcode downloads to the brain.
 
 ## Feedback & Support

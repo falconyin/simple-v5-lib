@@ -57,6 +57,12 @@ int main() {
         if (s.port >= 0) sim::distance_mount[s.port] = {true, s.ahead, s.right, s.looks};
     }
 
+    // A real IMU takes a while to calibrate (sim::real::calibrate_ms), and calibrateInertial waits for it
+    double calibrate_start = sim::t_ms;
+    calibrateInertial();
+    check("calibrateInertial waits for the IMU", sim::t_ms - calibrate_start >= sim::real::calibrate_ms
+          && sim::t_ms - calibrate_start < sim::real::calibrate_ms + 50, sim::t_ms - calibrate_start, sim::real::calibrate_ms);
+
     double t0, d0;
     // forward
     t0 = sim::t_ms; d0 = getPosition();

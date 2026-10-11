@@ -98,7 +98,7 @@ inline double mech_load[21] = {};     // % of power pulling it towards smaller p
 inline bool mech_jammed[21] = {};     // something stops it from turning
 // The real world: things a real robot has that a perfect simulator doesn't. All off by default
 // (the robot is then perfect: instant, exact readings), on with -DSIM_REALISTIC (tests/run_tests.sh
-// runs the tests a third time that way) or sim::realistic(true). Each can be set on its own.
+// runs each of its configurations a second time that way) or sim::realistic(true). Each can be set on its own.
 namespace real {
 inline int sensor_delay_ms = 0;    // a reading is this old: smart port data arrives every 10 ms
 inline int command_delay_ms = 0;   // a motor command takes effect this much later, for the same reason
@@ -123,7 +123,7 @@ inline void realistic(bool on) {
 // Is any of it on? Tests that measure how exact the robot is allow a real robot a little more
 inline bool isRealistic() {
     return real::sensor_delay_ms > 0 || real::command_delay_ms > 0 || real::velocity_noise > 0 || real::gyro_noise > 0
-        || real::imu_drift > 0 || real::battery < 12 || real::grip < 1e8;
+        || real::imu_drift > 0 || real::battery < 12 || real::grip < 1e8 || real::calibrate_ms > 0;
 }
 #ifdef SIM_REALISTIC
 inline bool realistic_at_start = (realistic(true), true);
@@ -143,16 +143,21 @@ template <class T> struct History {
     void record(const T &value) { entries[count % 64] = value; count++; }
     const T &ago(int ms) const { int i = count - 1 - ms; if (i < 0) i = 0; return entries[i % 64]; }
 };
-// Everything a sensor can report, as it was at one moment
+// Everything a sensor can report, as it was at one moment. imu_heading is what the IMU says,
+// heading where the robot really points (they differ by the drift): the distance sensors look
+// from the real one.
 struct Readings {
-    double heading, rate, dist[2], v[2], fwd_wheel, side_wheel, x, y, mech_pos[21], mech_v[21];
+    double imu_heading, heading, rate, dist[2], v[2], fwd_wheel, side_wheel, x, y;
+    double mech_pos[21], mech_v[21], mech_current[21];
 };
 inline History<Readings> readings;
+inline double mechCurrent(int p);
 inline void recordReadings() {
     Readings r;
-    r.heading = imu_heading; r.rate = rate; r.fwd_wheel = fwd_wheel; r.side_wheel = side_wheel; r.x = x; r.y = y;
+    r.imu_heading = imu_heading; r.heading = heading; r.rate = rate;
+    r.fwd_wheel = fwd_wheel; r.side_wheel = side_wheel; r.x = x; r.y = y;
     for (int s = 0; s < 2; s++) { r.dist[s] = dist[s]; r.v[s] = wheel_v[s]; }
-    for (int p = 0; p < 21; p++) { r.mech_pos[p] = mech_pos[p]; r.mech_v[p] = mech_v[p]; }
+    for (int p = 0; p < 21; p++) { r.mech_pos[p] = mech_pos[p]; r.mech_v[p] = mech_v[p]; r.mech_current[p] = mechCurrent(p); }
     readings.record(r);
 }
 // What the sensors report right now: the readings from sensor_delay_ms ago
@@ -316,7 +321,7 @@ struct motor { int port;
                  + sim::noise(sim::real::velocity_noise);
     if (mech()) return u == velocityUnits::pct ? dps / sim::MECH_MAXV * 100 : dps;
     return dps; }
-  double current(currentUnits){ return mech() ? sim::mechCurrent(port) : 0; }
+  double current(currentUnits){ return mech() ? sim::seen().mech_current[port] : 0; }
   void stop(brakeType b){
     if (mech()) sim::cmd_in.mech_mode[port] = b == brakeType::coast ? 1 : b == brakeType::brake ? 2 : 3;
     else sim::cmd_in.mode[side()] = b == brakeType::coast ? 1 : 2;
@@ -348,7 +353,7 @@ struct distance { int port; distance(int p) : port(p) {} bool installed(){ retur
   double objectDistance(distanceUnits u){ double in = sim::distanceSeen(port, sim::seen()); if (in < 0) in = 9999 / 25.4;
     return u == distanceUnits::in ? in : u == distanceUnits::cm ? in * 2.54 : in * 25.4; } };
 struct inertial { int port; inertial(int p) : port(p) {} bool installed(){ return !sim::unplugged[port]; }
-  double rotation(rotationUnits){ return sim::seen().heading; }
+  double rotation(rotationUnits){ return sim::seen().imu_heading; }
   double gyroRate(axisType, rateUnits){ double r = sim::seen().rate + sim::noise(sim::real::gyro_noise);
     return sim::gyro_rate_flipped ? r : -r; } // counter-clockwise positive, like the real IMU (assumed)
   void calibrate(){ sim::calibrating_until = sim::t_ms + sim::real::calibrate_ms; }
@@ -357,7 +362,7 @@ struct inertial { int port; inertial(int p) : port(p) {} bool installed(){ retur
   void setRotation(double d, rotationUnits){
     double shift = d - sim::imu_heading;
     sim::imu_heading = d; sim::heading = d;
-    for (auto &r : sim::readings.entries) r.heading += shift; } // old readings are in the new frame too
+    for (auto &r : sim::readings.entries) { r.imu_heading += shift; r.heading += shift; } } // old readings are in the new frame too
   void setHeading(double, rotationUnits){} };
 }
 namespace sim {

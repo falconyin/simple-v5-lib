@@ -448,9 +448,11 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
         } else if (style == LEFT_SWING) {
             spinSide(leftDrive, total_correction); // left side forward = clockwise
             rightDrive.stop(brakeType::hold);
+            last_drive_power = total_correction / 2; // one side pushes, the other stands: half the power on average
         } else if (style == RIGHT_SWING) {
             spinSide(rightDrive, total_correction * -1); // right side backward = clockwise
             leftDrive.stop(brakeType::hold);
+            last_drive_power = total_correction * -1 / 2;
         } else {
             // ARC: total_correction is the power for the middle of the robot. The wheels on the
             // outside of the circle have further to go than the ones on the inside.

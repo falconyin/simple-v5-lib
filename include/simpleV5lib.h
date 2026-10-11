@@ -266,6 +266,9 @@ void cancelMovement();
 // over while the robot is still moving. Much faster, a little less exact.
 // End your chain with a normal movement so the robot stops at the right place.
 // (If nothing follows within CHAIN_STOP_AFTER_MS, the drivetrain stops on its own.)
+// A turn in place (or a swing) after a chained drive first slows the robot down gently, so the
+// wheels don't skid: the robot rolls on a few inches while it does. A drive to a point that has to
+// curve sharply slows down for the corner the same way.
 //
 //   PID_forward_chain(24, 3);          // drive 24 inches, move on 3 inches before the end
 //   PID_turn_chain(90, 10);            // turn to 90, move on 10 degrees before
@@ -440,6 +443,7 @@ public:
 
     // For driver control, call it every time through the loop: power in percent, from a joystick or
     // buttons. 0 = hold where it is now. While a moveTo is running, 0 lets it finish.
+    // Close to a limit (setLimits) the power is eased off, so the arm can't fly past the limit.
     //   arm.manual(Controller.Axis2.position(percentUnits::pct));
     void manual(double power);
 

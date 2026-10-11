@@ -1,7 +1,9 @@
 #!/bin/sh
-# Build the library against the simulator (tests/sim/vex.h) and run the tests, twice:
+# Build the library against the simulator (tests/sim/vex.h) and run the tests, four times:
 #   1. with the settings from include/simpleV5LibConfig.h (no tracking wheels, no distance sensors)
 #   2. with tracking wheels and distance sensors turned on, using an edited copy of the config
+#   3. and 4. the same two again on a "real" robot (-DSIM_REALISTIC): sensor readings and motor
+#      commands 10 ms late, noisy speed readings, a drifting IMU, a drained battery, wheels that slip
 # Needs a C++17 compiler (g++ or clang++; on Windows, a MinGW g++ such as w64devkit, run from Git Bash:
 # CXX=/d/Tools/w64devkit/bin/g++ tests/run_tests.sh). Usage: tests/run_tests.sh
 set -e
@@ -9,8 +11,8 @@ cd "$(dirname "$0")/.."
 CXX="${CXX:-g++}"
 mkdir -p build
 
-build_and_run() { # $1 = folder with the library headers, $2 = program name
-    $CXX -std=c++17 -O1 -Wall -Wextra -Wno-unused-parameter -pthread \
+build_and_run() { # $1 = folder with the library headers, $2 = program name, $3 = extra compiler flags
+    $CXX -std=c++17 -O1 -Wall -Wextra -Wno-unused-parameter -pthread $3 \
         -I "$1" -I tests/sim \
         src/*.cpp tests/simulation_test.cpp \
         -o "build/$2"
@@ -19,6 +21,8 @@ build_and_run() { # $1 = folder with the library headers, $2 = program name
 
 echo "=== Tests without tracking wheels"
 build_and_run include simulation_test
+echo "=== The same on a real robot (late and noisy readings, drained battery, slipping wheels)"
+build_and_run include simulation_test_real -DSIM_REALISTIC
 
 echo "=== Tests with tracking wheels (forward wheel 3 in right of center, sideways wheel 4 in behind) and distance sensors"
 mkdir -p build/tracking_include
@@ -50,3 +54,5 @@ for setting in "PORT = PORT8" "FORWARD_OFFSET = 3.0" "PORT = PORT9" "SIDEWAYS_OF
     grep -q "$setting" "$CONFIG" || { echo "Could not turn on tracking wheels and distance sensors ($setting) in $CONFIG"; exit 1; }
 done
 build_and_run build/tracking_include simulation_test_tracking
+echo "=== The same on a real robot"
+build_and_run build/tracking_include simulation_test_tracking_real -DSIM_REALISTIC

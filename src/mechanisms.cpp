@@ -45,6 +45,9 @@ static double limitPower(double power, double max_power) {
     return fmax(-max_power, fmin(max_power, power));
 }
 
+// The least power (percent) manual() keeps while easing into a limit (see Arm::update)
+const double LIMIT_CREEP_POWER = 20;
+
 // ============================================================================
 // Arm
 // ============================================================================
@@ -217,7 +220,12 @@ void Arm::update() {
             held_at_limit = pushing;
         } else {
             held_at_limit = 0;
-            spinMotors(*motors, power);
+            // Close to a limit, ease off the way moveTo would (kp per degree left), so the arm
+            // can't fly past the limit before the next update sees it: the motor's readings are
+            // a little behind. Never below LIMIT_CREEP_POWER, or a heavy arm would stop short.
+            double room = (pushing == 1) ? highest - pos : pos - lowest;
+            double most = fmax(LIMIT_CREEP_POWER, room * pid.kp);
+            spinMotors(*motors, limitPower(power, most));
         }
     }
 }

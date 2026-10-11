@@ -70,9 +70,10 @@ makes the robot fly past the target. Two rules keep it under control:
 
 At the start of a movement the error is at its biggest, so P asks for full power right away.
 Full power from standing still makes the wheels slip, and slipping wheels make the distance
-measurement wrong. So for the first 0.3 s, the power is limited to a ramp that starts at 30%
-and rises to 100% (`startRamp`). The ramp only limits how *hard* the robot pushes; the
-direction always comes from the PID.
+measurement wrong. So the power is limited to a ramp that starts at 30% and rises to 100% over
+0.3 s (`startRamp`). The ramp only limits how *hard* the robot pushes; the direction always
+comes from the PID. After a chained movement (section 6) the robot is already moving, and the
+ramp starts from the power the drivetrain already has instead of from 30%.
 
 ### The gains
 
@@ -210,10 +211,20 @@ A chained movement (`PID_forward_chain`, `PID_turn_chain`, ...) doesn't stop:
    much near the real target.
 2. As soon as the robot is within `exit_range` of the real target, it hands over to the next
    movement **with the motors still running**.
-3. If the robot is still *driving* the way the next movement goes (faster than
-   `ALREADY_DRIVING_SPEED`), that movement skips the gentle start (`startRamp`). After a chained
-   turn in place the robot is turning but not driving, and a backward drive after a forward one
-   has to reverse first: both still start gently, or the wheels would slip.
+3. If the robot is still *driving* fast the way the next movement goes (faster than
+   `ALREADY_DRIVING_SPEED`), that movement can use full power right away: its `startRamp` starts
+   at 100%. Slower, it starts from the power the drivetrain already has. After a chained turn
+   in place the robot is turning but not driving (its average power is about 0), and a backward
+   drive after a forward one has to reverse first: both start gently, or the wheels would slip.
+
+Wheels slip the other way too. A turn in place while the robot still rolls at full speed
+reverses one side's wheels at speed: they skid, and the drive motors count the skidding as
+driving, so `getPosition()` and odometry (section 7) end up wrong. Braking hard would skid just
+the same. So before a turn in place or a swing, a chained robot first **slows down**
+(`slowDown`): `startRamp` the other way round, the power comes down at the same gentle rate
+until the robot rolls slower than `WALKING_SPEED`. The robot rolls on a few inches meanwhile,
+and keeps them: a forward chained into a turn ends a bit past its target. On a real robot
+that's the braking distance; choose `exit_range` with it in mind.
 
 Some details that keep chains exact:
 
@@ -369,6 +380,11 @@ its PID aims `exit_range` inches past the point, and it hands over when the poin
   lets the steering (and the `cos(aim error)` slow-down) curve it into the new direction. Only a
   point more than 90° around still gets a turn first. The last, normal movement of a path does
   turn first: driving straight into the point is what makes it stop exactly there.
+- **Sharp corners are taken slower**: curving more than `POINT_TURN_FIRST_ANGLE` at full speed
+  would skid the inside wheels (section 6), so the robot slows down to `CORNER_SPEED` first,
+  and the ramp brings the power back up after the corner. Even so, a real robot's wheels slip a
+  little in every corner, and odometry from the drive motors counts that slip: a path with
+  sharp corners can end an inch or two off. Tracking wheels don't slip, and get it exact.
 
 ---
 
@@ -500,7 +516,10 @@ running is ignored, so a stick at rest doesn't stop a button's `moveTo`.
 `setLimits` stops the arm at its lowest and highest position. `moveTo` targets are clamped
 into the range. With the stick, the arm holds when it reaches a limit. It keeps holding for as
 long as the stick pushes that way, even if the held arm sags back a little below the limit.
-Otherwise it would drive up, hold, sag, drive up, ... many times a second.
+Otherwise it would drive up, hold, sag, drive up, ... many times a second. Close to a limit the
+stick's power is eased off the way `moveTo` would (kP per degree left, never below
+`LIMIT_CREEP_POWER`): the motor's readings are a little behind, and an arm that flies at a limit
+at full speed is past it before the next update sees it.
 
 ### Intake: when is it jammed?
 

@@ -126,6 +126,7 @@ static void spinSide(motor_group &side, double speed) {
 
 // If either side asks for more than 100, both sides are scaled down together
 // so the ratio between them (which steers the robot) is kept.
+static double last_drive_power = 0; // the average of the two sides, the last time move() was called
 void move(double left_speed, double right_speed) {
     double biggest = fmax(fabs(left_speed), fabs(right_speed));
     if (biggest > 100) {
@@ -134,6 +135,7 @@ void move(double left_speed, double right_speed) {
     }
     spinSide(leftDrive, left_speed);
     spinSide(rightDrive, right_speed);
+    last_drive_power = (left_speed + right_speed) / 2;
 }
 
 // Like move(), but neither side goes above limit. Both sides are scaled down together,
@@ -246,25 +248,65 @@ static void saveResult(double start_time, double error, double overshoot, bool t
     last_result.timed_out = timed_out;
 }
 
-// Speed up gently during the first 0.3 s so the wheels don't slip
-// (only limits how hard it pushes, the direction still comes from the PID)
-static double startRamp(double power, double time_ms) {
-    double ramp_limit = 30 + (time_ms / 1000 * 233);
-    if (time_ms < 300 && fabs(power) > ramp_limit) {
+// Speed up gently so the wheels don't slip: the power can't go above a limit that starts at 30%,
+// or at the power the drivetrain already had the same way (from_power: after a chained movement),
+// and rises by RAMP_PERCENT_PER_S. Only limits how hard it pushes, the direction comes from the PID.
+// After a chained turn in place the robot is turning, but not driving yet (its average power is
+// about 0), and when the new movement goes the other way it must reverse: both start from 30%.
+const double RAMP_PERCENT_PER_S = 233;
+static double startRamp(double power, double time_ms, double from_power) {
+    double from = 30;
+    if (getSign(from_power) == getSign(power) && fabs(from_power) > from) {
+        from = fabs(from_power);
+    }
+    double ramp_limit = from + (time_ms / 1000 * RAMP_PERCENT_PER_S);
+    if (fabs(power) > ramp_limit) {
         return getSign(power) * ramp_limit;
     }
     return power;
 }
 
+// Slower than this (inches/s), the robot counts as not driving: a turn in place can begin
+const double WALKING_SPEED = 5;
+// Before a chained drive to a point curves into a sharp corner, it slows down to this (inches/s)
+const double CORNER_SPEED = 20;
 // Faster than this (inches/s), the robot counts as already driving: no gentle start needed
-const double ALREADY_DRIVING_SPEED = 5;
+const double ALREADY_DRIVING_SPEED = 25;
 
-// Is the robot still driving from a chained movement, the same way the next movement goes
-// (travel: +1 forward, -1 backwards)? Then that movement skips the gentle start. Only the
-// driving speed counts: after a chained turn in place the robot is turning, but not driving yet,
-// and when it rolls the other way it must reverse. Full power right away would make the wheels slip.
-static bool alreadyDriving(double travel) {
-    return last_was_chain && getMotorRate() * travel > ALREADY_DRIVING_SPEED;
+// Where startRamp starts for a movement that drives in the direction travel (+1 forward, -1 backwards).
+// After a chained movement the robot is still moving. Still driving fast that way: full power is fine,
+// the wheels already turn nearly that fast. Slower (near the end of a chained movement the PID has
+// eased off, its D term brakes, and slowDown() brings the power down to a trickle): from whatever the
+// drivetrain was pushing with. After a normal movement the robot stands still: from the start.
+static double rampFrom(double travel) {
+    if (!last_was_chain) {
+        return 0;
+    }
+    if (getMotorRate() * travel > ALREADY_DRIVING_SPEED) {
+        return travel * 100;
+    }
+    return last_drive_power;
+}
+
+// Slows the robot down to to_speed before a turn in place or a sharp corner while it still rolls from
+// a chained movement. Wheels that reverse at speed skid, and the drive motors count the skidding as
+// driving, which throws getPosition() and odometry off. Braking hard would skid too, so this is
+// startRamp the other way round: the power comes down at the same gentle rate, from whatever the
+// last movement was pushing with. Gives up after SLOW_DOWN_TIMEOUT_MS, so a wheel that keeps
+// reporting speed (lifted off the ground?) can't hold the next movement forever.
+const double SLOW_DOWN_TIMEOUT_MS = 800;
+static void slowDown(double to_speed) {
+    double start_time = Brain.timer(timeUnits::msec);
+    double from = last_drive_power;
+    while (!cancel_requested && fabs(getMotorRate()) > to_speed) {
+        double time_ms = Brain.timer(timeUnits::msec) - start_time;
+        if (time_ms > SLOW_DOWN_TIMEOUT_MS) {
+            break;
+        }
+        double power = fmax(0, fabs(from) - time_ms / 1000 * RAMP_PERCENT_PER_S);
+        move(getSign(from) * power, getSign(from) * power);
+        vexDelay(10);
+    }
 }
 
 // Called at the end of every movement
@@ -315,11 +357,15 @@ enum turnStyle { POINT_TURN, LEFT_SWING, RIGHT_SWING, ARC };
 
 // One loop shared by everything that turns to a heading. Only the way the power reaches the wheels is different.
 static void turnToHeading(const MotionRequest &request, PIDController pid, turnStyle style, const char* name) {
+    if (style != ARC) {
+        // Turning in place or swinging while still rolling (after a chained movement) would skid.
+        // Before the clock starts: the turn's time and log count from when the turning begins.
+        slowDown(WALKING_SPEED);
+    }
     double start_time = Brain.timer(timeUnits::msec);
     long delay = 10;
     SettleCheck settle(TURN_SETTLE_MS);
-    // (arcs only) still driving along the circle from a chained movement: no gentle start
-    bool driving = alreadyDriving(getSign(request.radius));
+    double ramp_from = rampFrom(getSign(request.radius)); // (arcs only) still driving from a chained movement
     double start_heading = getInertial();
     double target = request.target;
     double direction = getSign(target - start_heading); // +1 = this turn goes clockwise
@@ -386,8 +432,8 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
             push_direction = getSign(current_error);
         }
         total_correction = cap(total_correction, max_speed);
-        if (style == ARC && !driving) {
-            total_correction = startRamp(total_correction, time);
+        if (style == ARC) {
+            total_correction = startRamp(total_correction, time, ramp_from);
         }
 
         // Almost stopped but not there yet: give it a minimum push to beat friction
@@ -402,9 +448,11 @@ static void turnToHeading(const MotionRequest &request, PIDController pid, turnS
         } else if (style == LEFT_SWING) {
             spinSide(leftDrive, total_correction); // left side forward = clockwise
             rightDrive.stop(brakeType::hold);
+            last_drive_power = total_correction / 2; // one side pushes, the other stands: half the power on average
         } else if (style == RIGHT_SWING) {
             spinSide(rightDrive, total_correction * -1); // right side backward = clockwise
             leftDrive.stop(brakeType::hold);
+            last_drive_power = total_correction * -1 / 2;
         } else {
             // ARC: total_correction is the power for the middle of the robot. The wheels on the
             // outside of the circle have further to go than the ones on the inside.
@@ -432,7 +480,7 @@ static void driveForward(const MotionRequest &request) {
     bool continuing = last_was_chain; // the robot is still moving from a chained movement
     double target = request.target;
     double direction = getSign(target);
-    bool driving = alreadyDriving(direction); // ...and driving this way, not only turning: no gentle start
+    double ramp_from = rampFrom(direction); // ...and if it drives this way already, no fresh start
     // Measure the distance from where we start. Right after a chained PID_forward, measure from where
     // that one's target was instead: it handed over a bit early, and those inches must not get lost.
     double start_position = (continuing && chain_was_forward) ? chain_forward_end.load() : getPosition();
@@ -476,9 +524,7 @@ static void driveForward(const MotionRequest &request) {
         }
 
         double total_correction = cap(pid.compute(pid_target - driven, motor_rate), request.max_speed);
-        if (!driving) {
-            total_correction = startRamp(total_correction, time); // no ramp if we are already driving
-        }
+        total_correction = startRamp(total_correction, time, ramp_from);
 
         // Keep driving straight: if the robot turned clockwise, heading_correction is negative,
         // which slows the left side and speeds up the right side to turn back
@@ -521,7 +567,7 @@ static void driveToPoint(const MotionRequest &request) {
     double aim = heading + wrap180(headingTo(tx, ty) + flip - heading); // the heading to drive along
     double first_error = distanceAhead(tx, ty, heading);
     double travel = request.backwards ? -1 : 1; // the way the robot drives: +1 forward, -1 backwards
-    bool driving = alreadyDriving(travel); // still driving this way from a chained movement: no gentle start
+    double ramp_from = rampFrom(travel); // still driving this way from a chained movement: no fresh start
 
     // Chaining: aim a bit past the point, so the robot is still moving when it gets there
     bool chaining = request.exit_range > 0;
@@ -572,9 +618,7 @@ static void driveToPoint(const MotionRequest &request) {
         }
 
         double power = cap(pid.compute(ahead + pid_offset, motor_rate), request.max_speed);
-        if (!driving) {
-            power = startRamp(power, time); // no ramp if we are already driving
-        }
+        power = startRamp(power, time, ramp_from);
         // Not facing the point yet? Drive slower until the robot has turned towards it
         power *= fmax(cos(aim_error * M_PI / 180), 0);
 
@@ -601,6 +645,10 @@ static void runMotion(const MotionRequest &request) {
         // faster than turning on the spot (driveToPoint steers and slows down as needed). The last,
         // normal movement of a chain does turn first: it drives straight in, so it stops exactly.
         bool curve = last_was_chain && request.exit_range > 0 && fabs(turn_needed) <= POINT_CURVE_ANGLE;
+        if (curve && fabs(turn_needed) > POINT_TURN_FIRST_ANGLE) {
+            // A sharp corner at full speed would skid the inside wheels: slow down a bit first
+            slowDown(CORNER_SPEED);
+        }
         if (fabs(turn_needed) > POINT_TURN_FIRST_ANGLE && distance > POINT_AIM_DISTANCE && !curve) {
             // Facing far away from the point: turn towards it first. The turn is chained (doesn't
             // stop at the end), the drive keeps correcting the aim anyway.

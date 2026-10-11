@@ -46,10 +46,26 @@ case, comment out the others or build that file directly:
 g++ -std=c++17 -O1 -pthread -I include -I tests/sim src/*.cpp tests/simulation_test.cpp -o build/t && ./build/t
 ```
 
-`tests/run_tests.sh` runs the suite **twice**: once with `include/simpleV5LibConfig.h` as-is, and once
-against a `sed`-patched copy in `build/tracking_include/` that enables tracking wheels and all four distance sensors. The script
+`tests/run_tests.sh` runs the suite **four times**: with `include/simpleV5LibConfig.h` as-is, and
+against a `sed`-patched copy in `build/tracking_include/` that enables tracking wheels and all four distance sensors,
+each on the perfect simulator and again with `-DSIM_REALISTIC` (see below). The script
 greps the patched file and fails loudly if the `sed` didn't match — so renaming or reformatting the
-`TRACKING_*` or `DISTANCE_*` constants in the config breaks the second run and the script must be updated too.
+`TRACKING_*` or `DISTANCE_*` constants in the config breaks the tracking runs and the script must be updated too.
+
+`-DSIM_REALISTIC` turns on the simulator's real-world layer (`sim::real`, also `sim::realistic(true)` or one
+knob at a time): sensor readings and motor commands 10 ms late (`History` ring buffers, one entry per
+simulated ms), ±10 dps noise on `velocity()` and ±2 deg/s on `gyroRate()` (deterministic LCG), an IMU that
+drifts 1°/min, an 11 V battery, a traction limit (`grip`, 250 in/s²: the wheel spins faster than the robot
+accelerates, and the encoder counts the wheel) and a 2 s IMU calibration. The realistic runs are what catch
+skid-related odometry errors and stale-reading overshoots; the perfect runs stay strict. Consequences:
+- A test that reads what the program *commanded* must read `sim::cmd_in` (`.cmd`, `.mode`, `.mech_mode`), not
+  `sim::cmd`/`sim::mode`/`sim::mech_mode`, which are what reaches the motors after the command delay.
+- A test that teleports the robot (`sim::x = ...`) must call `sim::forgetReadings()` or the sensors report the
+  old place for 10 ms. `push()`/`bump()` do it themselves.
+- Tolerances that a real robot can't meet (dead-reckoning exactness after slip, true position after a stale
+  settle) are widened with `sim::isRealistic()` in the test, with a comment saying why, never silently.
+- Noise is deterministic but its sequence shifts when tests before it change; a realistic check that passes by
+  a hair will flake later, so leave real margin.
 
 New tests are mutation-checked: break the code on purpose and confirm the test fails (the first tests for
 chained drive-to-point missed 5 of 6 such mutations). Timing traps in the cooperative simulator:
@@ -73,7 +89,9 @@ The library only ever includes `"vex.h"`, which it never ships. Both builds supp
   `mech_jammed`, current draw from the power-vs-speed gap; ports 1–6 are always the drivetrain),
   simulated time (tests run far faster than real time), and cooperative "tasks" that are real threads
   but only switch inside `vexDelay`/`wait`. It can inject setup faults (`sim::unplugged`, `wrong_direction`, `sides_swapped`, `gyro_rate_flipped`, `wheel_diam`) which is
-  how `src/robotSetup.cpp` is tested.
+  how `src/robotSetup.cpp` is tested, and disturbances (`gain` for a weak side, `bump`, `push`, `obstacle`,
+  `heat`). Its real-world layer (`sim::real`: delays, noise, drift, battery, grip) is off unless
+  `-DSIM_REALISTIC`; `sim::v` is the robot's true speed and `sim::wheel_v` the wheels', they differ while skidding.
 - `ci/vex.h` — a copy of the `vex.h` a fresh VEXcode project generates, used only so the SDK build
   compiles. Consumers already have this file.
 

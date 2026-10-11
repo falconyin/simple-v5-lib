@@ -69,11 +69,19 @@ const double ARC_INTEGRAL_RANGE = FORWARD_INTEGRAL_RANGE;
 // ---------- Driving to a point (PID_drive_to_point, needs odometry) ----------
 // Power added per degree the robot points away from the target point while driving to it
 const double POINT_HEADING_KP = 2.0;
+// Power taken away per degree/10 ms the robot is already turning towards it (a brake, like a turn's kD).
+// Without it the robot swings past the direction it aims for when the aim moves quickly (a curve to
+// a pose), and the hard correction that follows skids the wheels.
+const double POINT_HEADING_KD = 10;
 // Closer than this (inches), the robot stops re-aiming at the point and just finishes the distance.
 // Very close to the point, small position changes would swing the aim around a lot.
 const double POINT_AIM_DISTANCE = 6;
 // If the robot has to turn more than this (degrees) to face the point, it turns first, then drives
 const double POINT_TURN_FIRST_ANGLE = 20;
+// PID_drive_to_pose steers towards a "carrot" point that hangs behind the target, along the target
+// heading, this fraction of the distance left (0 to 1). Bigger = a wider curve that lines up with
+// the heading earlier; smaller = straighter, but it has to turn harder at the end.
+const double POSE_LEAD = 0.6;
 
 // ---------- When is a movement finished? ----------
 // Default time limits in milliseconds. If a movement takes longer than this

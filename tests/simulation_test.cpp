@@ -407,7 +407,8 @@ int main() {
     reset();
     PID_drive_to_point_chain(0, 24, 4);
     PID_drive_to_point(0, -12, 0.5, 0.2); // behind the robot: too far around to curve, turns first
-    check("chain then a point behind: turns around and gets there", hypot(sim::x, sim::y + 12) < 1, sim::x, sim::y);
+    // (turning around right after a chain skids a little on real wheels, and the odometry counts it)
+    check("chain then a point behind: turns around and gets there", hypot(sim::x, sim::y + 12) < (sim::isRealistic() ? 2 : 1), sim::x, sim::y);
     reset();
     PID_drive_to_point_chain(0, 24, 4);
     // The robot is still rolling, so it aims at the point from where it is when the turn starts
@@ -415,6 +416,43 @@ int main() {
     PID_turn_to_point_chain(24, 48, 10);
     PID_forward(10, 0.3, 0.2);
     check("turn to point chain: forward keeps facing the point", fabs(getInertial() - aim_to) < 1.5, getInertial(), aim_to);
+
+    // ---------- Drive to a pose: a point and the heading to arrive at, in one curve ----------
+    // (a curve skids a little on real wheels, and odometry from the drive motors counts the skid)
+    double pose_tolerance = sim::isRealistic() ? 4 : 1;
+    reset();
+    PID_drive_to_pose_async(24, 24, 90, 0.5, 0.2);
+    double heading_10in = 999; // the heading 10 inches before the pose: a curve has lined up with 90 by then
+    while (isMoving()) {
+        if (heading_10in == 999 && hypot(sim::x - 24, sim::y - 24) < 10) heading_10in = getInertial();
+        vexDelay(5);
+    }
+    settle();
+    check("drive to pose (24, 24, 90): gets there", hypot(sim::x - 24, sim::y - 24) < pose_tolerance, sim::x, sim::y);
+    check("  ends facing 90", fabs(getInertial() - 90) < 2, getInertial(), 90);
+    check("  curves: nearly facing 90 ten inches before it", fabs(heading_10in - 90) < 15, heading_10in, 90);
+    reset();
+    PID_drive_to_pose(24, 48, 0, 0.5, 0.2); settle(); // an S: 24 inches to the side, ending the way it started
+    check("drive to pose (24, 48, 0): an S curve", hypot(sim::x - 24, sim::y - 48) < pose_tolerance && fabs(getInertial()) < 2, sim::x, sim::y);
+    reset();
+    PID_drive_to_pose(-24, -24, 90, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true); settle();
+    check("drive to pose (-24, -24, 90) backwards", hypot(sim::x + 24, sim::y + 24) < pose_tolerance, sim::x, sim::y);
+    check("  ends facing 90, back first", fabs(getInertial() - 90) < 2 && lastMovementResult().overshoot < 1, getInertial(), lastMovementResult().overshoot);
+    reset();
+    PID_drive_to_pose(0, 24, 180, 0.5, 0.2); settle(); // the pose points back at the robot: nothing to curve, turns around there
+    check("pose facing back (0, 24, 180): drives there and turns around", hypot(sim::x, sim::y - 24) < pose_tolerance && fabs(fabs(getInertial()) - 180) < 3, sim::y, getInertial());
+    reset();
+    PID_drive_to_pose_async(0, 48, 0, 0.5, 0.2);
+    waitUntilTraveled(24);
+    check("waitUntilTraveled(24) during a drive to pose", sim::y >= 24 && sim::y < 28 && isMoving(), sim::y, isMoving());
+    waitUntilDone();
+    reset();
+    PID_drive_to_pose_chain(24, 24, 90, 4);
+    double pose_handover_speed = fabs(getMotorRate()), pose_handover_heading = getInertial();
+    PID_drive_to_point(48, 24, 0.5, 0.2); settle();
+    // (the last part of the curve is slow: it is lining up with the heading while the point is already close)
+    check("pose chain hands over still rolling, near 90", pose_handover_speed > 10 && fabs(pose_handover_heading - 90) < 30, pose_handover_speed, pose_handover_heading);
+    check("  then drives on to (48, 24)", hypot(sim::x - 48, sim::y - 24) < pose_tolerance, sim::x, sim::y);
 
     reset();
     PID_swing_chain(90, LEFT_SIDE, 10);
@@ -996,8 +1034,12 @@ int main() {
         vexDelay(300);
         check("  spin(-100) goes the other way", sim::mech_v[INTAKE] < -0.9 * sim::MECH_MAXV, sim::mech_v[INTAKE], 0);
 
-        sim::mech_load[INTAKE] = 80; // heavy, but still turning (even on a drained battery)
         intake.spin(100);
+        vexDelay(500);
+        // Heavy, but still turning (even on a drained battery). The load comes while it already turns
+        // fast: reversing from full speed under this load would be slower than INTAKE_JAM_SPEED for
+        // about 130 ms, nearly INTAKE_JAM_MS, and whether that counts as a jam would be down to noise.
+        sim::mech_load[INTAKE] = 80;
         vexDelay(1000);
         // (the current really is over the limit, only the speed says it isn't jammed)
         check("intake: heavy but still turning is not a jam", intake.jamCount() == 3

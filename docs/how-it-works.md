@@ -356,15 +356,46 @@ so reset near the wall.
 2. **Drive**: the PID error is how far the point is **in front of** the robot (measured along
    the way it faces). If the robot drives past it, that becomes negative and it backs up.
 3. **Keep aiming**: every loop the robot works out the heading to the point again and steers
-   towards it, like the heading correction of `PID_forward`. So it still arrives if it gets
-   bumped or one side is weaker.
+   towards it, like the heading correction of `PID_forward`, plus a brake on how fast it is
+   already turning (`POINT_HEADING_KD`, like a turn's kD). So it still arrives if it gets
+   bumped or one side is weaker, and it doesn't swing past the aim when the aim moves quickly.
 4. **Slow down while not facing it**: the drive power is multiplied by `cos(aim error)`: full
    power when facing the point, none when facing 90° away.
-5. **Close to the point**, it stops re-aiming (`POINT_AIM_DISTANCE`): there, a tiny position
+5. **Steering comes first**: the outside wheel gets the full power, and the inside wheel what
+   is left after steering, down to standing still but never reversing. So the harder the robot
+   steers, the slower it drives. A wheel that reverses at speed skids, and odometry counts the
+   skid as driving.
+6. **Close to the point**, it stops re-aiming (`POINT_AIM_DISTANCE`): there, a tiny position
    change would swing the aim around wildly.
 
 It is finished when the point is (almost) 0 inches ahead, the robot has stopped, and it faces
 the way it was aiming. The robot can't drive sideways, so a tiny sideways miss is accepted.
+
+### Arriving at a heading: driving to a pose
+
+`PID_drive_to_pose(x, y, heading)` gets to the point *and* ends up facing `heading`, in one
+curve. It is the same loop, aiming at a different point: a **carrot** that hangs behind the
+target, along the target heading, by `POSE_LEAD` times the distance still to go
+(the "boomerang" idea):
+
+```
+carrot = target - lead * distance_left * (sin heading, cos heading)
+```
+
+Far away, the carrot is well behind the target, so the robot drives towards the line it must
+arrive along. As it gets closer the carrot slides onto the target, and the last part of the
+drive is along the target heading. Closer than `POINT_AIM_DISTANCE` the robot aims at the
+target heading itself, which is where the carrot was leading anyway. Driving backwards, the
+carrot hangs on the other side of the target, since the robot arrives there back first.
+
+`lead` sets the shape: bigger = a wider curve that lines up with the heading earlier, smaller =
+a straighter drive that has to turn harder at the end. 0 drives straight at the point and turns
+to the heading there. A pose the robot can't curve into (one that points back at it) comes out
+the same way: drive there, then turn around on the spot.
+
+A curve like this skids a little on real wheels, more than driving straight: a long curve to a
+pose can end an inch or two off when odometry comes from the drive motors. Tracking wheels get
+it exact. (The simulator's real-world layer, see the README, is what showed this.)
 
 ### Chaining points into a path
 
@@ -378,13 +409,20 @@ its PID aims `exit_range` inches past the point, and it hands over when the poin
 - **It curves instead of turning first**: when a chained point follows another chained movement,
   the robot is still driving. Stopping to turn would waste that speed, so it skips the turn and
   lets the steering (and the `cos(aim error)` slow-down) curve it into the new direction. Only a
-  point more than 90° around still gets a turn first. The last, normal movement of a path does
-  turn first: driving straight into the point is what makes it stop exactly there.
-- **Sharp corners are taken slower**: curving more than `POINT_TURN_FIRST_ANGLE` at full speed
-  would skid the inside wheels (section 6), so the robot slows down to `CORNER_SPEED` first,
-  and the ramp brings the power back up after the corner. Even so, a real robot's wheels slip a
-  little in every corner, and odometry from the drive motors counts that slip: a path with
+  point more than `POINT_CURVE_ANGLE` (120°) around still gets a turn first. The last, normal
+  movement of a path does turn first: driving straight into the point is what makes it stop
+  exactly there.
+- **Sharp corners are taken slower, but not stopped in**: curving more than
+  `POINT_TURN_FIRST_ANGLE` at full speed would skid the inside wheels (section 6), so the robot
+  slows down to `CORNER_SPEED` first, and the ramp brings the power back up after the corner.
+  Facing more than 90° away from the point, `cos(aim error)` would give no drive power at all,
+  and the robot would stop to turn in the middle of its path; a point that far around even
+  counts as "behind" to the PID. So through such a corner it keeps rolling with `CORNER_POWER`
+  the way it drives, and turns with the power that is left. Even so, a real robot's wheels slip
+  a little in every corner, and odometry from the drive motors counts that slip: a path with
   sharp corners can end an inch or two off. Tracking wheels don't slip, and get it exact.
+
+`PID_drive_to_pose_chain` chains poses the same way.
 
 ---
 

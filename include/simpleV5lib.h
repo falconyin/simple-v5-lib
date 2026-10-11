@@ -187,6 +187,16 @@ void PID_turn_to_point(double x, double y, double error_tolerance, double speed_
 void PID_drive_to_point(double x, double y, double error_tolerance, double speed_tolerance,
                         double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100, bool backwards = false);
 
+// Drive to the field point (x, y) AND arrive facing heading (degrees, like PID_turn_shortest), in one
+// curved movement. The robot steers towards a point that hangs behind the target along that heading,
+// so it lines up with the heading as it gets there. lead (0 to 1, see POSE_LEAD) sets how wide the
+// curve is. backwards = true drives there in reverse, and still ends up facing heading.
+// Tolerances in inches and inches/s. Can't do everything: a pose that points back at the robot
+// means driving there and turning around on the spot.
+void PID_drive_to_pose(double x, double y, double heading, double error_tolerance, double speed_tolerance,
+                       double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100, bool backwards = false,
+                       double lead = POSE_LEAD);
+
 // Which side of the drivetrain moves during a swing turn
 enum driveSide { LEFT_SIDE, RIGHT_SIDE };
 
@@ -230,12 +240,15 @@ void PID_turn_to_point_async(double x, double y, double error_tolerance, double 
                              double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100, bool backwards = false);
 void PID_drive_to_point_async(double x, double y, double error_tolerance, double speed_tolerance,
                               double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100, bool backwards = false);
+void PID_drive_to_pose_async(double x, double y, double heading, double error_tolerance, double speed_tolerance,
+                             double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100, bool backwards = false,
+                             double lead = POSE_LEAD);
 
 // Wait until the current movement is finished
 void waitUntilDone();
 
 // Wait until the current movement has gone this far from where it started
-// (inches for PID_forward and PID_drive_to_point, degrees for turns, swings and arcs), or has finished
+// (inches for PID_forward, PID_drive_to_point and PID_drive_to_pose, degrees for turns, swings and arcs), or has finished
 void waitUntilTraveled(double amount);
 
 // true while a movement is running. A chained movement counts as finished when it hands over,
@@ -268,7 +281,7 @@ void cancelMovement();
 // (If nothing follows within CHAIN_STOP_AFTER_MS, the drivetrain stops on its own.)
 // A turn in place (or a swing) after a chained drive first slows the robot down gently, so the
 // wheels don't skid: the robot rolls on a few inches while it does. A drive to a point that has to
-// curve sharply slows down for the corner the same way.
+// curve sharply slows down for the corner the same way, and keeps rolling through it.
 //
 //   PID_forward_chain(24, 3);          // drive 24 inches, move on 3 inches before the end
 //   PID_turn_chain(90, 10);            // turn to 90, move on 10 degrees before
@@ -289,9 +302,13 @@ void PID_arc_chain(double target, double radius, double exit_range,
 // exit_range in inches. Moves on when the point is less than exit_range ahead and the robot roughly
 // faces it (within POINT_TURN_FIRST_ANGLE): a point beside the robot is driven to, not skipped.
 // After another chained movement it curves towards the point instead of turning first (unless the
-// point is more than 90 degrees around), so the robot never stops in the middle of the path.
+// point is more than 120 degrees around), so the robot never stops in the middle of the path.
 void PID_drive_to_point_chain(double x, double y, double exit_range,
                               double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100, bool backwards = false);
+// Like PID_drive_to_point_chain, arriving along heading (see PID_drive_to_pose)
+void PID_drive_to_pose_chain(double x, double y, double heading, double exit_range,
+                             double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100, bool backwards = false,
+                             double lead = POSE_LEAD);
 // exit_range in degrees
 void PID_turn_to_point_chain(double x, double y, double exit_range,
                              double timeout_ms = TURN_TIMEOUT_MS, double max_speed = 100, bool backwards = false);

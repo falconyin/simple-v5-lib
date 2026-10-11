@@ -132,7 +132,10 @@ drive motors, `leftDrive`/`rightDrive` motor groups, `Inertial`). The library ow
   before `motion_running` goes false and read after waiting on it.
 
 Only three inner loops exist. `driveForward()` handles `PID_forward` (and heading-hold straightness via
-`FORWARD_HEADING_KP`), `driveToPoint()` handles `PID_drive_to_point`, and `turnToHeading()` handles
+`FORWARD_HEADING_KP`), `driveToPoint()` handles `PID_drive_to_point` *and* `PID_drive_to_pose` (the
+same loop; `aimPoint()` returns the point, or for a pose the boomerang "carrot" `lead × distance` behind
+the target along the target heading, and `aimHeading()` switches to the target heading itself inside
+`POINT_AIM_DISTANCE`), and `turnToHeading()` handles
 *everything that ends at a heading* — point turns, swings and arcs — differing only in `turnStyle` and
 how power reaches the wheels. Adding a new heading-based movement means a `turnStyle` case, not a new loop.
 
@@ -140,7 +143,15 @@ Each loop has a `chaining` branch (`exit_range > 0`) alongside its `SettleCheck`
 also requires the robot to roughly face its aim before handing over, or a point beside the robot would
 read as "0 inches ahead" and the movement would end before it started. `runMotion` additionally lets a
 chained drive-to-point *curve* into its new direction (while the turn needed is within
-`POINT_CURVE_ANGLE`) instead of inserting the turn-first step, so a chain of points never stops mid-path.
+`POINT_CURVE_ANGLE`, 120°) instead of inserting the turn-first step, so a chain of points never stops mid-path.
+Inside `driveToPoint` the steering has three rules that came out of the realistic simulator, keep them
+together: a D term on the heading (`POINT_HEADING_KD`, or the robot swings past a moving aim and the hard
+correction skids), "steering first" (the correction is capped so the inside wheel never reverses, and the
+drive power gives way to it, so hard steering means slower driving), and `CORNER_POWER` through a chained
+corner of more than 90° (there `cos(aim error)` would cut the drive power to zero and the PID sees the point
+as "behind"; the robot rolls through at `CORNER_POWER` in its travel direction instead). The 90° square
+chained-points test is sensitive to all three: its second corner's turn angle lands right around 90–110°
+depending on how the first corner was exited.
 
 **Chaining** is why so much state is global: a chained movement returns with the robot still moving,
 so the next one must know the heading that was being aimed for (`chain_heading`), whether the previous

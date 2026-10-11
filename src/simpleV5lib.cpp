@@ -162,7 +162,7 @@ void stopDriving(brakeType mode) {
 // start it and return right away, so your code can do other things meanwhile.
 // ============================================================================
 
-enum motionType { MOTION_FORWARD, MOTION_TURN, MOTION_SWING_LEFT, MOTION_SWING_RIGHT, MOTION_ARC, MOTION_TO_POINT };
+enum motionType { MOTION_FORWARD, MOTION_TURN, MOTION_SWING_LEFT, MOTION_SWING_RIGHT, MOTION_ARC, MOTION_TO_POINT, MOTION_TO_POSE };
 
 struct MotionRequest {
     motionType type;
@@ -173,9 +173,11 @@ struct MotionRequest {
     double max_speed;
     double radius;     // arcs only: inches, negative = drive backwards along the arc
     double exit_range; // chained movements only: hand over to the next movement this close to the target
-    double target_x;   // driving to a point only: the point, in field inches
+    double target_x;   // driving to a point or pose only: the point, in field inches
     double target_y;
-    bool backwards;    // driving to a point only: drive there backwards
+    double target_heading; // driving to a pose only: the heading to arrive at
+    double lead;           // driving to a pose only: how far behind the target the carrot point hangs (0 to 1)
+    bool backwards;    // driving to a point or pose only: drive there backwards
     bool report_progress; // update motion_progress (for waitUntilTraveled)
     // A copy of the gains, taken in your task when the movement starts. The background task only
     // uses this copy, so changing turnGains & co. can never mix up a movement that is running.
@@ -270,6 +272,8 @@ static double startRamp(double power, double time_ms, double from_power) {
 const double WALKING_SPEED = 5;
 // Before a chained drive to a point curves into a sharp corner, it slows down to this (inches/s)
 const double CORNER_SPEED = 20;
+// ... and keeps at least this much drive power (percent) while it turns through the corner
+const double CORNER_POWER = 30;
 // Faster than this (inches/s), the robot counts as already driving: no gentle start needed
 const double ALREADY_DRIVING_SPEED = 25;
 
@@ -549,10 +553,45 @@ const double POINT_FACING_TOLERANCE = 5;
 // A chained drive to a point, started while the robot is still moving from a chained movement,
 // curves towards its point instead of turning first, unless the point is more than this many
 // degrees away from where the robot faces
-const double POINT_CURVE_ANGLE = 90;
+const double POINT_CURVE_ANGLE = 120;
+
+// The point the robot steers towards. Driving to a point: the point itself. Driving to a pose: a
+// "carrot" point that hangs lead * (distance left) behind the target, along the target heading.
+// Chasing the carrot bends the path: at first it is well behind the target, so the robot drives
+// towards the line it must arrive along; as the robot gets closer the carrot slides onto the target,
+// and the last part of the drive is along the target heading. (Driving backwards, the carrot hangs
+// on the other side, since the robot arrives there back first.)
+static void aimPoint(const MotionRequest &request, double &x, double &y) {
+    x = request.target_x;
+    y = request.target_y;
+    if (request.type == MOTION_TO_POSE) {
+        double distance = hypot(x - getX(), y - getY());
+        double facing = request.target_heading * M_PI / 180;
+        double travel = request.backwards ? -1 : 1;
+        x -= travel * request.lead * distance * sin(facing);
+        y -= travel * request.lead * distance * cos(facing);
+    }
+}
+
+// The heading to drive along, from where the robot is now: towards the aim point, or, driving to a
+// pose and already close to it, the target heading (the carrot has nearly reached the target by then,
+// and this is where the robot would arrive at the exact heading)
+static double aimHeading(const MotionRequest &request, double heading, bool close) {
+    double flip = request.backwards ? 180 : 0; // backwards: the back of the robot points at the aim
+    double aim;
+    if (request.type == MOTION_TO_POSE && close) {
+        aim = request.target_heading;
+    } else {
+        double ax, ay;
+        aimPoint(request, ax, ay);
+        aim = headingTo(ax, ay) + flip;
+    }
+    return heading + wrap180(aim - heading);
+}
 
 // Drive to a field point, using odometry. The robot keeps aiming at the point while it drives,
-// so it gets there even if it gets bumped or one side is weaker.
+// so it gets there even if it gets bumped or one side is weaker. Driving to a pose works the same,
+// only the robot aims at the carrot point (see aimPoint) and, close to the target, at its heading.
 static void driveToPoint(const MotionRequest &request) {
     double start_time = Brain.timer(timeUnits::msec);
     long delay = 10;
@@ -562,9 +601,8 @@ static void driveToPoint(const MotionRequest &request) {
     double ty = request.target_y;
     double start_x = getX();
     double start_y = getY();
-    double flip = request.backwards ? 180 : 0; // backwards: the back of the robot points at the target
     double heading = getInertial();
-    double aim = heading + wrap180(headingTo(tx, ty) + flip - heading); // the heading to drive along
+    double aim = aimHeading(request, heading, false); // the heading to drive along
     double first_error = distanceAhead(tx, ty, heading);
     double travel = request.backwards ? -1 : 1; // the way the robot drives: +1 forward, -1 backwards
     double ramp_from = rampFrom(travel); // still driving this way from a chained movement: no fresh start
@@ -573,7 +611,8 @@ static void driveToPoint(const MotionRequest &request) {
     bool chaining = request.exit_range > 0;
     double pid_offset = chaining ? travel * request.exit_range : 0;
     pid.reset(first_error + pid_offset);
-    telemetryStart("PID_drive_to_point", hypot(tx - start_x, ty - start_y), first_error, request.timeout_ms);
+    const char* name = (request.type == MOTION_TO_POSE) ? "PID_drive_to_pose" : "PID_drive_to_point";
+    telemetryStart(name, hypot(tx - start_x, ty - start_y), first_error, request.timeout_ms);
 
     bool chained_exit = false;
     bool timed_out = false;
@@ -593,9 +632,9 @@ static void driveToPoint(const MotionRequest &request) {
         // Driving forward, a negative "ahead" means the robot drove past the point; backwards, a positive one
         overshoot.update(ahead, travel);
 
-        // Keep aiming at the point, until we are close
-        if (distance > POINT_AIM_DISTANCE) {
-            aim = heading + wrap180(headingTo(tx, ty) + flip - heading);
+        // Keep aiming at the point, until we are close (a pose keeps aiming: at its heading)
+        if (distance > POINT_AIM_DISTANCE || request.type == MOTION_TO_POSE) {
+            aim = aimHeading(request, heading, distance <= POINT_AIM_DISTANCE);
         }
         double aim_error = aim - heading;
 
@@ -619,10 +658,29 @@ static void driveToPoint(const MotionRequest &request) {
 
         double power = cap(pid.compute(ahead + pid_offset, motor_rate), request.max_speed);
         power = startRamp(power, time, ramp_from);
+        // Steer towards the aim: push by the angle still to turn, brake by how fast it is turning already
+        double heading_correction = aim_error * POINT_HEADING_KP - getGyroRate() * POINT_HEADING_KD;
         // Not facing the point yet? Drive slower until the robot has turned towards it
-        power *= fmax(cos(aim_error * M_PI / 180), 0);
-
-        double heading_correction = aim_error * POINT_HEADING_KP;
+        double facing_factor = fmax(cos(aim_error * M_PI / 180), 0);
+        if (chaining && facing_factor < CORNER_POWER / 100) {
+            // A sharp corner in a chain. Facing 90 degrees away would mean no drive power at all, and
+            // a robot that stops to turn in the middle of its path. Instead keep rolling through the
+            // corner with CORNER_POWER the way the robot drives (the PID can't tell: a point more than
+            // 90 degrees around counts as "behind"), and turn with the power that is left.
+            power = travel * CORNER_POWER;
+            heading_correction = cap(heading_correction, 100 - CORNER_POWER);
+        } else {
+            power *= facing_factor;
+            // Steering comes first: the outside wheel gets max_speed, and the inside wheel what is
+            // left, down to standing still but never reversing. A wheel that reverses at speed skids,
+            // and odometry counts the skid. So the harder the robot has to steer, the slower it
+            // drives. When it hardly drives (lining up with a pose at the end) it still gets
+            // CORNER_POWER to turn with. (With a max_speed below CORNER_POWER the steering can take
+            // all of it: the drive power then stops at zero, it must not turn negative and back away.)
+            double most_steering = fmax(fmin(fabs(power), request.max_speed / 2), CORNER_POWER);
+            heading_correction = cap(heading_correction, most_steering);
+            power = getSign(power) * fmin(fabs(power), fmax(request.max_speed - fabs(heading_correction), 0));
+        }
         moveLimited(power + heading_correction, power - heading_correction, request.max_speed);
         telemetryUpdate(time, ahead, motor_rate, power, pid);
         vexDelay(delay);
@@ -635,11 +693,10 @@ static void driveToPoint(const MotionRequest &request) {
 static void runMotion(const MotionRequest &request) {
     if (request.type == MOTION_FORWARD) {
         driveForward(request);
-    } else if (request.type == MOTION_TO_POINT) {
+    } else if (request.type == MOTION_TO_POINT || request.type == MOTION_TO_POSE) {
         double start_time = Brain.timer(timeUnits::msec);
         double heading = getInertial();
-        double flip = request.backwards ? 180 : 0;
-        double turn_needed = wrap180(headingTo(request.target_x, request.target_y) + flip - heading);
+        double turn_needed = aimHeading(request, heading, false) - heading;
         double distance = hypot(request.target_x - getX(), request.target_y - getY());
         // In the middle of a chain the robot is still driving: curving into the new direction is much
         // faster than turning on the spot (driveToPoint steers and slows down as needed). The last,
@@ -655,7 +712,8 @@ static void runMotion(const MotionRequest &request) {
             MotionRequest turn = makeRequest(MOTION_TURN, heading + turn_needed, 0, 0, request.timeout_ms, request.max_speed);
             turn.exit_range = 5;
             turn.report_progress = false; // waitUntilTraveled counts inches driven, not degrees turned
-            turnToHeading(turn, makePID(request.turn_gains, TURN_INTEGRAL_RANGE), POINT_TURN, "PID_drive_to_point (turn)");
+            const char* name = (request.type == MOTION_TO_POSE) ? "PID_drive_to_pose (turn)" : "PID_drive_to_point (turn)";
+            turnToHeading(turn, makePID(request.turn_gains, TURN_INTEGRAL_RANGE), POINT_TURN, name);
         }
         if (!cancel_requested) {
             MotionRequest drive = request;
@@ -715,6 +773,8 @@ static MotionRequest makeRequest(motionType type, double target, double error_to
     request.exit_range = 0;
     request.target_x = 0;
     request.target_y = 0;
+    request.target_heading = 0;
+    request.lead = 0;
     request.backwards = false;
     request.report_progress = true;
     return request;
@@ -832,6 +892,18 @@ void PID_drive_to_point_async(double x, double y, double error_tolerance, double
     startMotion(request);
 }
 
+void PID_drive_to_pose_async(double x, double y, double heading, double error_tolerance, double speed_tolerance,
+                             double timeout_ms, double max_speed, bool backwards, double lead) {
+    startOdometry();
+    MotionRequest request = makeRequest(MOTION_TO_POSE, 0, error_tolerance, speed_tolerance, timeout_ms, max_speed);
+    request.target_x = x;
+    request.target_y = y;
+    request.target_heading = heading;
+    request.lead = lead;
+    request.backwards = backwards;
+    startMotion(request);
+}
+
 // ---------- Start a movement and wait until it is finished ----------
 
 void PID_forward(double target, double error_tolerance, double speed_tolerance, double timeout_ms, double max_speed) {
@@ -878,6 +950,12 @@ void PID_drive_to_point(double x, double y, double error_tolerance, double speed
     waitUntilDone();
 }
 
+void PID_drive_to_pose(double x, double y, double heading, double error_tolerance, double speed_tolerance,
+                       double timeout_ms, double max_speed, bool backwards, double lead) {
+    PID_drive_to_pose_async(x, y, heading, error_tolerance, speed_tolerance, timeout_ms, max_speed, backwards, lead);
+    waitUntilDone();
+}
+
 // ---------- Chained: finish early without stopping, so the next movement continues smoothly ----------
 
 void PID_forward_chain(double target, double exit_range, double timeout_ms, double max_speed) {
@@ -900,6 +978,19 @@ void PID_drive_to_point_chain(double x, double y, double exit_range, double time
     MotionRequest request = makeChainRequest(MOTION_TO_POINT, 0, exit_range, timeout_ms, max_speed);
     request.target_x = x;
     request.target_y = y;
+    request.backwards = backwards;
+    startMotion(request);
+    waitUntilDone();
+}
+
+void PID_drive_to_pose_chain(double x, double y, double heading, double exit_range, double timeout_ms, double max_speed,
+                             bool backwards, double lead) {
+    startOdometry();
+    MotionRequest request = makeChainRequest(MOTION_TO_POSE, 0, exit_range, timeout_ms, max_speed);
+    request.target_x = x;
+    request.target_y = y;
+    request.target_heading = heading;
+    request.lead = lead;
     request.backwards = backwards;
     startMotion(request);
     waitUntilDone();

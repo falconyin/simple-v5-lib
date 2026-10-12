@@ -235,14 +235,22 @@ So when autonomous ends in the middle of a `PID_forward`, the movement goes on i
 While the robot is disabled its motors can't move, but when driver control starts, the movement
 is still there. That's why `usercontrol()` starts with `cancelMovement()` (`arcadeDrive()` and
 `tankDrive()` call it too). An Arm or Intake also keeps the last command autonomous gave it, so
-give each one a command at the start of driver control too, `intake.stop()` for example.
+give each one a command at the start of driver control too, `intake.stop()` for example. An arm
+that was still on its way usually gives up while the robot is disabled (that lasts longer than
+`ARM_TIMEOUT_MS`, and the motor has no power), and holds wherever it got to. Its `moveTo` again
+(a button still held, say) starts it over (section 11).
 
 A program can set `Competition.bStopAllTasksBetweenModes = true` (it is `false` unless you set
-it). Then the change of mode stops *every* task except `main()`, the library's too. The library
-starts them again: every function that needs one of its tasks first checks that the task still
-runs, and starts it if not (`startTaskOnce` in `src/simpleV5lib.cpp`). A movement whose task was
-stopped can never finish, so the robot stops and the next movement can start. Odometry counts on
-from wherever the robot is then (it can't drive while it is disabled anyway).
+it). Then the robot being disabled stops *every* task except `main()`, the library's too
+(starting autonomous or driver control doesn't look at this switch). The library starts them
+again: every function that needs one of its tasks first checks that the task still runs, and
+starts it if not (`startTaskOnce` in `src/simpleV5lib.cpp`). A movement whose task was stopped
+can never finish, so the robot stops and the next movement can start. Odometry counts on from
+its last reading: the wheels' encoders keep counting while its task is stopped, so the robot
+rolling on after autonomous still counts. The one task that doesn't start again by itself is the
+autonomous selector's: if the robot is disabled while you are choosing (a field cable or
+competition switch plugged in after the program started), taps and buttons do nothing until
+`startAutonSelector()` is called again.
 
 ---
 
@@ -599,7 +607,7 @@ has to wait. It is the same idea as the motion task in section 5.
 Driver control calls the same command every 20 ms (`arm.moveTo(ARM_SCORE)` for as long as
 the button is held, `intake.spin(100)` for as long as R1 is). Starting over every time would
 reset the PID and the jam timer 50 times a second. So a command that is the same as the last
-one is ignored.
+one is ignored (except a `moveTo` that gave up, below).
 
 ### Arm: move with PID, hold with the motor
 
@@ -611,7 +619,8 @@ Then it stops the motor with `brakeType::hold`. In hold mode the motor runs its 
 control, inside the motor, and pushes back whenever something moves it away. That is what
 keeps a heavy arm up, and it costs nothing to tune. If the arm doesn't get there within
 `ARM_TIMEOUT_MS` (stuck on something), it holds wherever it got to, and `waitUntilDone()`
-returns false.
+returns false. The same `moveTo` again is then not ignored like other repeats: it isn't there,
+so it tries again.
 
 Gravity is the hard part of moving an arm. While going down, gravity helps, and P alone stops
 where its push up is just as strong as gravity: below the target, by `gravity / kP` degrees.

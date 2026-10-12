@@ -40,3 +40,7 @@ chained drive-to-point missed 5 of 6 such mutations). Timing traps in the cooper
   a task of its own (the simulated `usercontrol`), so a library that doesn't restart its task fails a
   check instead of hanging. Where the blocking call is the point (main waiting in `PID_forward`), a
   regression hangs; CI's 10-minute job timeout turns that into a failure.
+- `test_disable` also cuts the motors' power (`sim::disabled`) until `test_auton`/`test_driver`, or a test
+  sets `sim::disabled = false`: nothing moves while disabled, so a later test needs the robot enabled.
+  A disabled period shorter than real (seconds) hides anything that times out meanwhile (the arm's
+  `ARM_TIMEOUT_MS`) or rolls on (odometry): `playMatch` waits `ARM_TIMEOUT_MS + 1000`.

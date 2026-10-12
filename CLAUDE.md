@@ -85,9 +85,11 @@ The library only ever includes `"vex.h"`, which it never ships. Both builds supp
   but only switch inside `vexDelay`/`wait`; each remembers the function it was started with, so
   `task::_index` and stopping a task by its function work. Its `competition` copies what the real SDK
   (V5_20240802, decoded from `libv5rt.a`, not documented by VEX) does on a mode change: stop the task running
-  the other mode's function (`bStopTasksBetweenModes`, on by default), or with `bStopAllTasksBetweenModes`
-  every task except main; `test_auton`/`test_driver`/`test_disable` switch modes. A stopped task stays stuck
-  in the `vexDelay` it was in (it doesn't model motors turning off while disabled). It can inject setup faults (`sim::unplugged`, `wrong_direction`, `sides_swapped`, `gyro_rate_flipped`, `wheel_diam`) which is
+  the other mode's function (`bStopTasksBetweenModes`, on by default), and with `bStopAllTasksBetweenModes`
+  being disabled (only that, not starting a mode) stops every task except main; `test_auton`/`test_driver`/`test_disable`
+  switch modes. A stopped task stays stuck in the `vexDelay` it was in. While disabled (`sim::disabled`) the motors
+  get no power and coast; enabled again, they go back to the program's last commands (a guess, not checked on a
+  real Brain). It can inject setup faults (`sim::unplugged`, `wrong_direction`, `sides_swapped`, `gyro_rate_flipped`, `wheel_diam`) which is
   how `src/robotSetup.cpp` is tested, and disturbances (`gain` for a weak side, `bump`, `push`, `obstacle`,
   `heat`). Its real-world layer (`sim::real`: delays, noise, drift, battery, grip) is off unless
   `-DSIM_REALISTIC`; `sim::real::friction` (a power deadband on the drive) is not part of it and only
@@ -141,13 +143,16 @@ drive motors, `leftDrive`/`rightDrive` motor groups, `Inertial`). The library ow
 `startTaskOnce(fn)` in `src/simpleV5lib.cpp`, which asks the SDK whether a task runs `fn` (`task::_index`,
 protected, reached through a derived `TaskFinder`) and starts one if not. They are started lazily, and every
 function that relies on one calls it again first, because `Competition.bStopAllTasksBetweenModes = true`
-makes the SDK stop every task except main on a mode change: the motion task's callers (`startMotion`,
+makes the SDK stop every task except main when the robot is disabled: the motion task's callers (`startMotion`,
 `waitUntilDone`, `waitUntilTraveled`, `isMoving`, `cancelMovement`) go through `keepMotionTaskRunning()`,
 which also stops the robot and frees `motion_running` when the task had to be restarted (its movement can
 never finish); odometry through `keepOdometryRunning()` (getters and `cancelMovement`, which driver control
-calls every loop); Arm/Intake commands *before* their repeated-command check (a driver loop repeats
-autonomous's last command). A new background task, or a new function that waits on one, must do the same;
-`testCompetitionModes` plays a match with and without that switch. The default
+calls every loop; the loop's last reading is file-static, so a restarted loop counts what the robot rolled
+meanwhile); Arm/Intake commands *before* their repeated-command check (a driver loop repeats
+autonomous's last command; a `moveTo` that gave up is not a repeat, so it tries again). The selector is the
+exception: only `startAutonSelector()` starts it, so a disable during pre-auton stops it for good (documented).
+A new background task, or a new function that waits on one, must do the same; `testCompetitionModes` plays a
+match with and without that switch, disabled for longer than `ARM_TIMEOUT_MS`. The default
 (`bStopTasksBetweenModes`) only stops the task running the user's `autonomous`/`usercontrol` function.
 
 Only three inner loops exist. `driveForward()` handles `PID_forward` (and heading-hold straightness via

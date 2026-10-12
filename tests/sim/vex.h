@@ -235,9 +235,18 @@ inline void stepMechanisms() {
         mech_pos[p] += mech_v[p] * 0.001;
     }
 }
+// While the competition has the robot disabled (competition::test_disable), its motors get no power
+// and coast, whatever the program commands. Enabled again, they go back to the program's commands.
+// (Whether a real motor picks up its last command again, or waits for a new one, is not known.)
+inline bool disabled = false;
+inline void powerOff() {
+    for (int s = 0; s < 2; s++) { cmd[s] = 0; mode[s] = 1; }
+    for (int p = FIRST_MECH_PORT; p < 21; p++) { mech_cmd[p] = 0; mech_mode[p] = 1; }
+}
 inline void step() {               // 1 ms
     commands.record(cmd_in);
     applyCommands(commands.ago(real::command_delay_ms));
+    if (disabled) powerOff();
     stepMechanisms();
     for (int s = 0; s < 2; s++) {
         double power = cmd[s] * gain[s] * real::battery / 12;
@@ -460,17 +469,18 @@ protected:
 };
 // Copies what the VEX SDK's competition does (V5_20240802, decoded from libv5rt.a): when a mode
 // starts, the task running the other mode's function is stopped and a new task runs this mode's
-// function. Disabled stops both. Only the task running *that function* is stopped, unless
-// bStopAllTasksBetweenModes, which stops every task except main. Making a competition sets both
-// switches back to their defaults. (On the real brain the field control system starts the modes;
-// test_auton/test_driver/test_disable do the same here, for tests.)
+// function. Disabled stops both. Only the task running *that function* is stopped, except that
+// with bStopAllTasksBetweenModes being disabled stops every task except main (starting a mode
+// doesn't look at that switch). While disabled the motors get no power (sim::disabled). Making a
+// competition sets both switches back to their defaults. (On the real brain the field control
+// system starts the modes; test_auton/test_driver/test_disable do the same here, for tests.)
 struct competition {
     static inline bool bStopTasksBetweenModes = true;
     static inline bool bStopAllTasksBetweenModes = false;
     static inline void (*auton_fn)() = nullptr;
     static inline void (*driver_fn)() = nullptr;
     static inline int mode = 0; // 0 disabled, 1 autonomous, 2 driver control
-    competition() { bStopTasksBetweenModes = true; bStopAllTasksBetweenModes = false; auton_fn = driver_fn = nullptr; mode = 0; }
+    competition() { bStopTasksBetweenModes = true; bStopAllTasksBetweenModes = false; auton_fn = driver_fn = nullptr; mode = 0; sim::disabled = false; }
     void autonomous(void (*f)()) { auton_fn = f; }
     void drivercontrol(void (*f)()) { driver_fn = f; }
     bool isEnabled() { return mode != 0; }
@@ -480,6 +490,7 @@ struct competition {
     void test_driver() { start(2, driver_fn, auton_fn); }
     void test_disable() {
         mode = 0;
+        sim::disabled = true;
         if (bStopTasksBetweenModes) { stopFn(auton_fn); stopFn(driver_fn); }
         if (bStopAllTasksBetweenModes) sim::stopTasks(nullptr, true);
     }
@@ -487,6 +498,7 @@ private:
     static void stopFn(void (*f)()) { if (f) sim::stopTasks((const void *)f); }
     static void start(int new_mode, void (*f)(), void (*other)()) {
         mode = new_mode;
+        sim::disabled = false;
         if (bStopTasksBetweenModes) stopFn(other);
         if (f) sim::startTask(f, (const void *)f);
     }

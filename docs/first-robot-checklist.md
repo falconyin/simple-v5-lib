@@ -269,8 +269,15 @@ Plug a competition switch into the controller and run `examples/mechanisms` with
 - [ ] Start autonomous, and switch to disabled while the robot is driving: it stops.
 - [ ] Switch to driver control: the robot doesn't move until you touch the sticks, then drives
   normally, and the arm and intake answer their buttons.
+- [ ] Again, but stay disabled for 5 seconds, with the arm still on its way when autonomous ends: in
+  driver control its button moves it again. Odometry (on the Brain screen, as in step 4) still matches
+  where the robot is, including how far it rolled after autonomous ended.
 - [ ] Again, with `Competition.bStopAllTasksBetweenModes = true;` as the first line of `main()`:
   the same.
+- [ ] With that line still in, run the program before plugging in the competition switch, and plug
+  it in (disabled) while the selector shows: taps and Left / Right should now do nothing (the
+  selector stops, see [How it works, section 5](how-it-works.md#when-the-competition-mode-changes)).
+  If they still work, please report it.
 
 ---
 
@@ -291,6 +298,7 @@ with what you saw.
 | A motor's hold mode after several stops in a row | step 11 | the arm sags after a few moves |
 | How long an SD card write takes | step 12 | a movement after a pause starts late |
 | Which tasks a change of competition mode stops | step 13 | the robot drives on by itself in driver control, or the arm or intake doesn't answer |
+| A motor picks up its last command again after being disabled | step 13 | the intake autonomous left spinning stands still in driver control |
 | `setPose` while the robot moves | below | the position jumps back to the old value |
 
 The last one: the simulator switches between tasks only when one of them waits, a real Brain

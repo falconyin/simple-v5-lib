@@ -104,8 +104,12 @@ void Arm::moveTo(double degrees, double speed) {
     startMechanismTask();
     degrees = fmax(lowest, fmin(highest, degrees));
     speed = fmin(100, fabs(speed)); // a speed limit, the direction comes from the PID
-    if (last_command == ARM_MOVE && degrees == target && speed == max_speed) {
-        return; // already on its way there, or holding there
+    // The same move again is ignored while it is on its way or holding there. But not after it gave
+    // up (ARM_TIMEOUT_MS, for example while the robot was disabled and the motor had no power):
+    // then a driver loop that repeats it tries again.
+    bool gave_up = isDone() && !arrived;
+    if (last_command == ARM_MOVE && degrees == target && speed == max_speed && !gave_up) {
+        return;
     }
     target = degrees;
     max_speed = speed;

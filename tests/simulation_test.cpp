@@ -1107,6 +1107,11 @@ static void testArm() {
           && fabs(sim::t_ms - t_start - ARM_TIMEOUT_MS) < 50, sim::t_ms - t_start, ARM_TIMEOUT_MS);
     check("  then holds where it is", sim::cmd_in.mech_mode[ARM] == 3, sim::cmd_in.mech_mode[ARM], 3);
     sim::mech_jammed[ARM] = false;
+    // The same moveTo again (a driver loop repeats it) is not ignored: it gave up, so it tries again
+    arm.moveTo(300);
+    arrived = arm.waitUntilDone();
+    check("  the same moveTo again, once free: tries again, gets there", arrived
+          && fabs(arm.position() - 300) < ARM_TOLERANCE + (sim::isRealistic() ? 1 : 0), arm.position(), 300);
 
     double before_release = arm.position();
     arm.release();
@@ -1245,16 +1250,17 @@ static void matchDriver() {
 }
 
 // Driver control's first Arm or Intake command repeats what autonomous left them doing, and is
-// ignored as nothing new. After every task was stopped, it must still start the mechanism task
-// again: arm_first decides which of the two is the first one.
+// ignored as nothing new (unless the arm's move gave up). After every task was stopped, it must
+// still start the mechanism task again: arm_first decides which of the two is the first one.
 static void driverUsesMechanisms(bool arm_first) {
     for (int step = 0; step < 2; step++) {
         if ((step == 0) == arm_first) {
-            // An idle stick (manual(0) in every loop) lets autonomous's moveTo finish
-            for (int i = 0; i < 300 && !arm.isDone(); i++) { arm.manual(0); vexDelay(10); }
+            // Autonomous's moveTo gave up while the motor had no power (disabled for longer than
+            // ARM_TIMEOUT_MS). Driver control repeating it (a button held down) must try again.
+            for (int i = 0; i < 300 && !(arm.isDone() && arm.waitUntilDone()); i++) { arm.moveTo(200, 20); vexDelay(20); }
             // (on a real robot the readings are a little behind: the arm moves on a bit before the hold takes over)
             double tolerance = ARM_TOLERANCE + (sim::isRealistic() ? 1 : 0);
-            check("  the arm finishes autonomous's moveTo", arm.isDone() && fabs(arm.position() - 200) < tolerance,
+            check("  repeating autonomous's moveTo gets the arm there", arm.isDone() && fabs(arm.position() - 200) < tolerance,
                   arm.position(), 200);
         } else {
             int jams = intake.jamCount();
@@ -1291,6 +1297,11 @@ static void playMatch(competition &match, bool stop_all, bool arm_first) {
     check("  disabled: the autonomous task is stopped", !sim::taskRunning((const void *)matchAuton)
           && sim::taskCount() == tasks_after_disabled, sim::taskCount(), tasks_after_disabled);
     check("  ... in the middle of its movement and the arm's", !auton_done && !arm.isDone(), auton_done, arm.isDone());
+    // A real disabled period lasts seconds, longer than the arm's timeout. The motors have no power:
+    // the robot rolls on a little, the arm can't get anywhere.
+    double y_disabled = sim::y;
+    vexDelay(ARM_TIMEOUT_MS + 1000);
+    double rolled = sim::y - y_disabled;
 
     match.test_driver();
     vexDelay(100);
@@ -1301,6 +1312,8 @@ static void playMatch(competition &match, bool stop_all, bool arm_first) {
     check("  driver control: starts, cancelMovement() returns", driver_loops > 0 && !isMoving(), driver_loops, isMoving());
     vexDelay(500);
     check("  the robot has stopped", fabs(sim::v[0]) < 1 && fabs(sim::v[1]) < 1, sim::v[0], sim::v[1]);
+    check("  odometry counted the roll while disabled", rolled > 1 && fabs(getY() - sim::y) < (sim::isRealistic() ? 0.5 : 0.05),
+          getY(), sim::y);
     check("  the intake still runs autonomous's last command", sim::mech_v[INTAKE] > 0.9 * sim::MECH_MAXV * sim::real::battery / 12,
           sim::mech_v[INTAKE], 0);
     driverUsesMechanisms(arm_first);
@@ -1344,6 +1357,7 @@ static void testCompetitionModes() {
     // main() is never stopped. When the movement it waits for loses its task, PID_forward must
     // still return, and stop the robot: here no driver loop sets the motors' power.
     printf("bStopAllTasksBetweenModes while main() waits for a movement\n");
+    sim::disabled = false; // enabled, as with no field connected (the last match ended disabled)
     reset();
     match_to_disable = &match;
     double d0 = getPosition();
@@ -1351,6 +1365,9 @@ static void testCompetitionModes() {
     PID_forward(48, 0.3, 0.2);
     double went = getPosition() - d0;
     check("  PID_forward returns when its task is stopped", went > 6 && went < 40, went, 48);
+    // Enabled again (without starting a mode's task): the motors must not drive on with the stopped
+    // movement's power
+    sim::disabled = false;
     vexDelay(500);
     check("  the robot has stopped", fabs(sim::v[0]) < 1 && fabs(sim::v[1]) < 1, sim::v[0], sim::v[1]);
     d0 = getPosition();

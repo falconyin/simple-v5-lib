@@ -26,13 +26,15 @@ static double wheelInches(rotation* wheel) {
     return wheel->position(rotationUnits::rev) * TRACKING_WHEEL_DIAMETER_INCH * M_PI;
 }
 
-static int odometryLoop() {
-    double last_forward = 0;
-    double last_sideways = 0;
-    double last_heading = 0;
-    bool have_start = false;
-    unsigned changes_seen = 0;
+// The last reading. Kept outside the loop, so a loop that was stopped and started again (see
+// keepOdometryRunning) counts on from it, and the robot's movement in between isn't lost.
+static double last_forward = 0;
+static double last_sideways = 0;
+static double last_heading = 0;
+static bool have_start = false;
+static unsigned changes_seen = 0;
 
+static int odometryLoop() {
     while (true) {
         unsigned changes_before = manual_changes;
         double forward = (forward_wheel != nullptr) ? wheelInches(forward_wheel) : getPosition();
@@ -88,7 +90,8 @@ static int odometryLoop() {
 bool startTaskOnce(int (*function)());
 
 // Starts the odometry task again if it was stopped (see startTaskOnce in simpleV5lib.cpp). It
-// counts on from where the robot is then: the robot can't drive while it is disabled anyway.
+// counts on from its last reading: the wheels' encoders kept counting while it was stopped, so
+// the robot rolling on after autonomous ended still counts.
 void keepOdometryRunning() {
     if (odometry_started) {
         startTaskOnce(odometryLoop);

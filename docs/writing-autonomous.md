@@ -39,8 +39,9 @@ A competition program has three parts, and the field controller decides when eac
 When autonomous ends, VEXcode stops the task running `autonomous()`, often in the middle of a
 movement, but the library's own tasks keep running: that's why `usercontrol()` must cancel the
 movement. (If your program sets `Competition.bStopAllTasksBetweenModes = true`, the library's tasks
-are stopped too, and start again by themselves. [How it works, section 5](how-it-works.md#when-the-competition-mode-changes)
-has the details.)
+are stopped too when the robot is disabled, and start again by themselves, except the selector's: it
+stops for good if the robot is disabled while you are still choosing.
+[How it works, section 5](how-it-works.md#when-the-competition-mode-changes) has the details.)
 
 Each routine is a function of its own, `void leftSpot() { ... }`, added to the selector with
 `addAuton("Left spot", leftSpot)`. The first one added is selected until someone picks another.

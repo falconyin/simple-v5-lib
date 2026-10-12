@@ -457,7 +457,8 @@ public:
 
     // Move to this position and stay there: the motor's hold mode keeps it there once it arrives.
     // Returns right away. Calling it again with the same position does nothing, so it is fine to
-    // call it every time through the driver control loop while a button is pressed.
+    // call it every time through the driver control loop while a button is pressed. Only after it
+    // gave up (ARM_TIMEOUT_MS, see waitUntilDone) does the same position try again.
     void moveTo(double degrees, double max_speed = 100);
 
     // Wait until the arm got to where moveTo sent it. Returns false if it didn't make it within
@@ -571,7 +572,10 @@ private:
 // Add a routine to the list, with a short name (up to 10 routines)
 void addAuton(const char* name, void (*routine)());
 
-// Call at the end of pre_auton, after addAuton
+// Call at the end of pre_auton, after addAuton.
+// With Competition.bStopAllTasksBetweenModes = true, the robot being disabled while the selector runs
+// (a field cable or competition switch plugged in after the program started) stops it for good:
+// taps and buttons do nothing until startAutonSelector() is called again.
 void startAutonSelector();
 
 // Call at the start of usercontrol, so the arrow buttons are free for driving

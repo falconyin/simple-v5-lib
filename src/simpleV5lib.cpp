@@ -609,7 +609,9 @@ static void aimPoint(const MotionRequest &request, double &x, double &y) {
     x = request.target_x;
     y = request.target_y;
     if (request.type == MOTION_TO_POSE) {
-        double distance = hypot(x - getX(), y - getY());
+        double dx = x - getX(); // from the robot to the target
+        double dy = y - getY();
+        double distance = hypot(dx, dy);
         double facing = request.target_heading * M_PI / 180;
         double travel = request.backwards ? -1 : 1;
         // The way the robot moves along the line at the end
@@ -617,8 +619,8 @@ static void aimPoint(const MotionRequest &request, double &x, double &y) {
         double line_y = travel * cos(facing);
         double behind = request.lead * distance; // how far behind the target the carrot hangs
         // Where the robot is, seen from the target: how far back along the line, and how far beside it
-        double robot_back = (x - getX()) * line_x + (y - getY()) * line_y;
-        double robot_beside = (x - getX()) * line_y - (y - getY()) * line_x;
+        double robot_back = dx * line_x + dy * line_y;
+        double robot_beside = dx * line_y - dy * line_x;
         double look_ahead = 2 * POINT_AIM_DISTANCE;
         if (fabs(robot_beside) < look_ahead) {
             // The point on the line that is look_ahead away from the robot (Pythagoras), in front of it
@@ -915,7 +917,9 @@ static void setTargetPoint(MotionRequest &request, double x, double y, bool back
 static void setTargetPose(MotionRequest &request, double x, double y, double heading, bool backwards, double lead) {
     setTargetPoint(request, x, y, backwards);
     request.target_heading = heading;
-    request.lead = lead;
+    // Over 1 the carrot would hang further back than the robot is from the target, and the robot could
+    // end far from it (lead 1.2: 40 inches off)
+    request.lead = fmax(0, fmin(1, lead));
 }
 
 // The heading a turn to the point (x, y) goes to: the short way round to face it (backwards: to

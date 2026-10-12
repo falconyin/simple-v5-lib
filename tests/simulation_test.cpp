@@ -492,9 +492,12 @@ static void testDriveToPose() {
     // Any lead from 0 to 1 gets there. Without the carrot's look-ahead, a big lead put the carrot almost
     // on top of the robot once it reached the line: it weaved and ended inches beside the target
     // (lead 0.8: 3 to 5), and lead 1 stopped wherever the robot first reached the line.
+    // (6, 48, 0) starts only 6 inches beside its line, already inside the look-ahead. A lead over 1
+    // counts as 1 (lead 1.2 used to end 40 inches off).
     struct { double x, y, heading, lead; bool backwards; } poses[] = {
         {24, 36, 90, 0.3, false}, {24, 36, 90, 0.8, false}, {24, 36, 90, 1, false},
         {0, 48, 90, POSE_LEAD, false}, {0, 48, 90, 1, false}, {-24, -24, 90, 1, true},
+        {6, 48, 0, 1, false}, {24, 36, 90, 1.5, false},
     };
     for (auto &p : poses) {
         reset();

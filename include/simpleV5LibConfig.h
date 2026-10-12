@@ -75,13 +75,15 @@ const double POINT_HEADING_KP = 2.0;
 const double POINT_HEADING_KD = 10;
 // Closer than this (inches), the robot stops re-aiming at the point and just finishes the distance.
 // Very close to the point, small position changes would swing the aim around a lot.
-// (PID_drive_to_pose also looks twice this far ahead along the line it arrives on.)
+// PID_drive_to_pose also looks twice this far ahead along the line it arrives on; tuned with 6,
+// in the simulator; a much smaller value makes most poses end further off again.
 const double POINT_AIM_DISTANCE = 6;
 // If the robot has to turn more than this (degrees) to face the point, it turns first, then drives
 const double POINT_TURN_FIRST_ANGLE = 20;
 // PID_drive_to_pose steers towards a "carrot" point that hangs behind the target, along the target
 // heading, this fraction of the distance left (0 to 1). Bigger = a wider curve that lines up with
-// the heading earlier; smaller = straighter, but it has to turn harder at the end.
+// the heading earlier; smaller = straighter, but it has to turn harder at the end. Near that line
+// the carrot stays 2 * POINT_AIM_DISTANCE ahead of the robot, so any lead up to 1 gets there.
 const double POSE_LEAD = 0.6;
 
 // ---------- When is a movement finished? ----------

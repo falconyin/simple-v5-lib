@@ -190,10 +190,12 @@ void PID_drive_to_point(double x, double y, double error_tolerance, double speed
 
 // Drive to the field point (x, y) AND arrive facing heading (degrees, like PID_turn_shortest), in one
 // curved movement. The robot steers towards a point that hangs behind the target along that heading,
-// so it lines up with the heading as it gets there. lead (0 to 1, see POSE_LEAD) sets how wide the
-// curve is. backwards = true drives there in reverse, and still ends up facing heading.
+// so it lines up with the heading as it gets there; near that line it steers towards a point a
+// little ahead along it. lead (0 to 1, see POSE_LEAD) sets how wide the curve is.
+// backwards = true drives there in reverse, and still ends up facing heading.
 // Tolerances in inches and inches/s. Can't do everything: a pose that points back at the robot
-// means driving there and turning around on the spot.
+// means driving there and turning around on the spot, and a pose about a foot away and well to the
+// side has no room to curve (it ends inches off: use PID_drive_to_point and a turn).
 void PID_drive_to_pose(double x, double y, double heading, double error_tolerance, double speed_tolerance,
                        double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100, bool backwards = false,
                        double lead = POSE_LEAD);

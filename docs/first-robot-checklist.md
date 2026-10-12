@@ -64,7 +64,7 @@ If it says **"getGyroRate() has the wrong sign"**, please also report it (see th
 way the inertial sensor counts its turning speed, and this is the first real robot that can say
 whether that is right. The fix is to remove the minus sign in `getGyroRate()` in
 `src/simpleV5lib.cpp`. With the wrong sign, the D part of every turn pushes instead of braking,
-and turns shake wildly. ([how-it-works §10](how-it-works.md#10-setting-up-a-new-robot))
+and turns shake wildly. ([How it works, section 10](how-it-works.md#10-setting-up-a-new-robot))
 
 ## 3. Measure the robot
 
@@ -107,7 +107,7 @@ int main() {
 - [ ] Leave it running a few minutes, then push it again: the numbers still change. (They
   come from a background task; this checks it keeps running.)
 
-Off by a few percent in one direction only? Redo step 3. ([how-it-works §7](how-it-works.md#7-odometry-where-is-the-robot))
+Off by a few percent in one direction only? Redo step 3. ([How it works, section 7](how-it-works.md#7-odometry-where-is-the-robot))
 
 ## 5. Tune turns
 
@@ -155,7 +155,7 @@ tuned them yet.
 `DRIVE_SLIP_LIMIT = 40` keeps each side's power within 40% of how fast its wheels already turn,
 so a movement can't spin the wheels at the start or skid them when braking. 40 is what the
 *simulator's* wheels could take; your wheels and tiles grip differently.
-([how-it-works §1](how-it-works.md#not-letting-the-wheels-slip-traction-control))
+([How it works, section 1](how-it-works.md#not-letting-the-wheels-slip-traction-control))
 
 - [ ] Drive a fast route a few times, for example 48 inches forward, a 90° turn and 24 inches
   forward, all at full speed, and listen and look. Wheels chirping, or the robot lurching or
@@ -199,7 +199,7 @@ int main() {
 - [ ] It arrives facing the wrong way and turns hard at the end: raise `POSE_LEAD` (a wider
   curve). Its curve is too wide for the field: lower it.
 
-([how-it-works §8](how-it-works.md#8-driving-to-a-point))
+([How it works, section 8](how-it-works.md#8-driving-to-a-point))
 
 ## 10. Distance sensors
 
@@ -215,7 +215,7 @@ measured from the robot's center, to the front of the sensor.
 - [ ] Do it right after a movement, without the `wait(100, msec)` before it. If the result is
   worse than when standing still, the sensor reads late: keep the wait in your autonomous.
 
-([how-it-works §7](how-it-works.md#correcting-the-position-from-a-wall))
+([How it works, section 7](how-it-works.md#correcting-the-position-from-a-wall))
 
 ## 11. Arm and intake
 
@@ -232,7 +232,7 @@ intake. Run `examples/mechanisms` with your motor ports.
   number. A V5 motor draws at most 2.5 A.
 - [ ] Stuck: `isJammed()` turns true and `jamCount()` goes up. A normal game piece: it doesn't.
 
-([how-it-works §11](how-it-works.md#11-mechanisms-an-arm-that-holds-an-intake-that-unjams))
+([How it works, section 11](how-it-works.md#11-mechanisms-an-arm-that-holds-an-intake-that-unjams))
 
 ## 12. SD card
 

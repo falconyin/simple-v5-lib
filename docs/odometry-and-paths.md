@@ -2,7 +2,7 @@
 
 This page is about using the field-position features: telling the robot where it is, driving to
 points and poses, chaining them into paths, and correcting the position from a wall. How the math
-works inside is in [how-it-works §7 and §8](how-it-works.md#7-odometry-where-is-the-robot); this
+works inside is in [sections 7 and 8 of How it works](how-it-works.md#7-odometry-where-is-the-robot); this
 page is about what to call and what to expect.
 
 The paths in the pictures come from the library's own code, driving the simulator in

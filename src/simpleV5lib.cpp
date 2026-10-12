@@ -597,15 +597,38 @@ const double POINT_CURVE_ANGLE = 120;
 // towards the line it must arrive along; as the robot gets closer the carrot slides onto the target,
 // and the last part of the drive is along the target heading. (Driving backwards, the carrot hangs
 // on the other side, since the robot arrives there back first.)
+//
+// Close to the line, the carrot also stays a look-ahead (2 * POINT_AIM_DISTANCE) in front of the robot,
+// like a driver looking down the road rather than at the front bumper. On the line, the carrot is only
+// (1 - lead) * (distance left) ahead of the robot: with a big lead that is so close that a small
+// sideways offset swings the aim around, the robot crosses the line at a steep angle and ends beside
+// the target, and with lead 1 the carrot sits right where the robot is. So the carrot moves forward
+// along the line to where it is a look-ahead away from the robot (never past the target). The
+// look-ahead is where the aim starts sliding over to the target heading (see aimHeading).
 static void aimPoint(const MotionRequest &request, double &x, double &y) {
     x = request.target_x;
     y = request.target_y;
     if (request.type == MOTION_TO_POSE) {
-        double distance = hypot(x - getX(), y - getY());
+        double dx = x - getX(); // from the robot to the target
+        double dy = y - getY();
+        double distance = hypot(dx, dy);
         double facing = request.target_heading * M_PI / 180;
         double travel = request.backwards ? -1 : 1;
-        x -= travel * request.lead * distance * sin(facing);
-        y -= travel * request.lead * distance * cos(facing);
+        // The way the robot moves along the line at the end
+        double line_x = travel * sin(facing);
+        double line_y = travel * cos(facing);
+        double behind = request.lead * distance; // how far behind the target the carrot hangs
+        // Where the robot is, seen from the target: how far back along the line, and how far beside it
+        double robot_back = dx * line_x + dy * line_y;
+        double robot_beside = dx * line_y - dy * line_x;
+        double look_ahead = 2 * POINT_AIM_DISTANCE;
+        if (fabs(robot_beside) < look_ahead) {
+            // The point on the line that is look_ahead away from the robot (Pythagoras), in front of it
+            double look_ahead_back = robot_back - sqrt(look_ahead * look_ahead - robot_beside * robot_beside);
+            behind = fmin(behind, fmax(look_ahead_back, 0));
+        }
+        x -= behind * line_x;
+        y -= behind * line_y;
     }
 }
 
@@ -894,7 +917,9 @@ static void setTargetPoint(MotionRequest &request, double x, double y, bool back
 static void setTargetPose(MotionRequest &request, double x, double y, double heading, bool backwards, double lead) {
     setTargetPoint(request, x, y, backwards);
     request.target_heading = heading;
-    request.lead = lead;
+    // Over 1 the carrot would hang further back than the robot is from the target, and the robot could
+    // end far from it (lead 1.2: 40 inches off)
+    request.lead = fmax(0, fmin(1, lead));
 }
 
 // The heading a turn to the point (x, y) goes to: the short way round to face it (backwards: to

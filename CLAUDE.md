@@ -110,7 +110,10 @@ drive motors, `leftDrive`/`rightDrive` motor groups, `Inertial`). The library ow
 Only three inner loops exist. `driveForward()` handles `PID_forward` (and heading-hold straightness via
 `FORWARD_HEADING_KP`), `driveToPoint()` handles `PID_drive_to_point` *and* `PID_drive_to_pose` (the
 same loop; `aimPoint()` returns the point, or for a pose the boomerang "carrot" `lead × distance` behind
-the target along the target heading, and `aimHeading()` slides a pose's aim over to the target heading itself
+the target along the target heading, pulled forward near that line to stay 2× `POINT_AIM_DISTANCE` ahead of the
+robot but never past the target (without it a big lead weaves and ends inches off, and lead 1 stalls with the carrot
+on the robot; the cost: a pose about a foot away and well beside its line has no room left to curve and ends
+inches off, and shorter look-aheads traded that for worse results on ordinary poses), and `aimHeading()` slides a pose's aim over to the target heading itself
 between 2× and 1× `POINT_AIM_DISTANCE`; a sudden switch there needed a brake harder than traction control allows), and `turnToHeading()` handles
 *everything that ends at a heading* — point turns, swings and arcs — differing only in `turnStyle` and
 how power reaches the wheels. Adding a new heading-based movement means a `turnStyle` case, not a new loop.

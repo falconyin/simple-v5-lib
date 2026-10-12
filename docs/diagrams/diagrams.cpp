@@ -3,7 +3,8 @@
 // simulated robot went. The others (coordinates, offsets, the wall) are drawn from fixed numbers.
 // It also drives the guide's other examples and prints the numbers docs/odometry-and-paths.md quotes.
 // The tuning graphs (docs/tuning.md) are what the Brain screen shows during a movement: every line
-// the library drew on the simulator's screen, and their numbers are printed too.
+// the library drew on the simulator's screen, and their numbers are printed too. The autonomous
+// picture (docs/writing-autonomous.md) is examples/autonomous's own routine, from both starting spots.
 // Run docs/diagrams/make_diagrams.sh after changing how the robot drives, look at the pictures, and
 // compare the numbers with the guides.
 
@@ -12,6 +13,12 @@
 #include <unistd.h>
 #include <string>
 #include <vector>
+
+// examples/autonomous, whose routine docs/writing-autonomous.md shows: the picture drives the
+// example's own code (its main() is renamed, so it doesn't clash with this one)
+#define main autonomous_example_main
+#include "../../examples/autonomous/main.cpp"
+#undef main
 
 // ---------- Colors (a light card, so the pictures read the same on light and dark pages) ----------
 const char *SURFACE = "#fcfcfb", *INK = "#0b0b0b", *INK_2 = "#52514e", *GRID = "#e4e3df", *AXIS = "#a8a79f";
@@ -505,6 +512,61 @@ static void numbers() {
            chained.show().c_str(), faster.show("%.0f").c_str(), corners.show().c_str());
 }
 
+// examples/autonomous's routine from both starting spots, which are mirror images of each other:
+// the picture (each robot counts from where it starts, so each path is drawn from its own spot), and
+// the numbers docs/writing-autonomous.md quotes. Each spot is driven STARTS times; the picture is the
+// first run. The path comes from the example's own code, but the places below are copies of the
+// example's points: change them together.
+static void autonomousExample(const std::string &folder) {
+    const double PIECE_Y = 30, GOAL_X = 24, GOAL_Y = 48, BACKED_X = 14, PARK_X = -12, PARK_Y = 6;
+    Picture p{-62, -10, 62, 58, 5.5};
+    p.top = 56;
+    // Tile lines without numbers: every robot has its own (0, 0)
+    for (double x = -48; x <= 48; x += 24) p.line(x, p.y0, x, p.y1, GRID, 1);
+    for (double y = 0; y <= 48; y += 24) p.line(p.x0, y, p.x1, y, GRID, 1);
+    p.line(0, p.y0, 0, p.y1, AXIS, 1.5, " stroke-dasharray='6 5'");
+    p.text(0, p.y0, "the mirror line", "middle", INK_2, 0, 18, 11);
+    std::string summary; // printed after all the runs, so the example's own "Autonomous took" lines come first
+    struct { bool mirrored; const char *color; } runs[] = {{false, BLUE}, {true, ORANGE}};
+    for (auto &r : runs) {
+        double side = r.mirrored ? -1 : 1, shift = -40 * side; // the left spot is 40 inches left of the line
+        Range time, goal, end, heading;
+        for (int start = 0; start < STARTS; start++) {
+            startAtOrigin(start);
+            double started = sim::t_ms; // timed like the example times itself, with the Brain's timer
+            if (r.mirrored) rightSpot(); else leftSpot();
+            time.add((sim::t_ms - started) / 1000);
+            goal.add(closestTo(GOAL_X * side, GOAL_Y));
+            end.add(hypot(sim::x - PARK_X * side, sim::y - PARK_Y));
+            heading.add(fabs(remainder(getInertial(), 360)));
+            auto points = track();
+            if (start > 0) continue;
+            for (auto &q : points) q.first += shift;
+            p.robot(shift, 0, 0, 14, INK, 0.6);
+            p.path(points, r.color);
+            p.pose(sim::x + shift, sim::y, getInertial(), r.color);
+        }
+        summary += Picture::fmt("  %s: %s s, passes %s in from the goal, ends %s in from (%g, %g), heading %s degrees off\n",
+                                r.mirrored ? "rightSpot" : "leftSpot", time.show().c_str(), goal.show().c_str(),
+                                end.show().c_str(), PARK_X * side, PARK_Y, heading.show().c_str());
+        // Where each step of the routine goes, numbered like the comments in the example
+        p.dot(shift, PIECE_Y, 5, YELLOW);
+        p.text(shift, PIECE_Y, "1", r.mirrored ? "end" : "start", INK, 9 * side, 4, 13);
+        p.dot(shift + GOAL_X * side, GOAL_Y, 5, r.color);
+        p.text(shift + GOAL_X * side, GOAL_Y, "2, 3", "middle", r.color, 0, -12, 13);
+        p.text(shift + BACKED_X * side, GOAL_Y, "4", "middle", r.color, 0, 20, 13);
+        p.text(shift + PARK_X * side, PARK_Y, "5", r.mirrored ? "start" : "end", r.color, -10 * side, 4, 13);
+        p.text(shift, 0, "start (0, 0)", "middle", INK_2, 0, 24, 11);
+        p.text(shift, p.y1, r.mirrored ? "<tspan font-weight='600'>right spot: mirrored = true</tspan>"
+                                       : "<tspan font-weight='600'>left spot: mirrored = false</tspan>",
+               "middle", r.color, 0, -30);
+        p.text(shift, p.y1, Picture::fmt("goal at (%g, %g) from its start, %s s", GOAL_X * side, GOAL_Y, time.show().c_str()),
+               "middle", INK_2, 0, -12, 12);
+    }
+    p.save(folder, "autonomous-mirrored.svg", "The example routine from the left starting spot, and mirrored from the right one");
+    printf("\ndocs/writing-autonomous.md, examples/autonomous from both spots, %d runs each\n%s", STARTS, summary.c_str());
+}
+
 // ---------- The tuning graphs and numbers in docs/tuning.md ----------
 
 // In src/controllerTuner.cpp: the line the controller shows after a try in tuneWithController
@@ -676,6 +738,7 @@ int main(int argc, char **argv) {
     tuningGraphs(folder);
     numbers();
     tuningNumbers();
+    autonomousExample(folder);
     fflush(stdout);
     _exit(0); // the library's background tasks never end
 }

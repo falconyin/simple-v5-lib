@@ -4,8 +4,10 @@ This page explains the ideas behind every part of the library, in the order you 
 You don't need any of it to *use* the library. But when you want to know why the robot
 does something, or want to write your own library later, start here. Every section points
 to the code that does it. (How to *use* odometry, points and paths, with pictures, is in
-[Odometry and paths](odometry-and-paths.md), and how to tune the gains, with pictures of the graph,
-in [Tuning the PID](tuning.md).)
+[Odometry and paths](odometry-and-paths.md), how to tune the gains, with pictures of the graph,
+in [Tuning the PID](tuning.md), and how to put the movements together into a routine in
+[Writing autonomous](writing-autonomous.md). When something goes wrong, start at
+[Troubleshooting](troubleshooting.md).)
 
 - [1. PID: the heart of every movement](#1-pid-the-heart-of-every-movement)
 - [2. When is a movement finished?](#2-when-is-a-movement-finished)
@@ -528,7 +530,8 @@ middle.
 
 Most "the PID doesn't work" problems are really setup problems. `examples/robotSetup` runs these
 checks in order. ([First day on a real robot](first-robot-checklist.md) puts them, the tuning, and
-every other check a new robot needs into one checklist.)
+every other check a new robot needs into one checklist, and [Troubleshooting](troubleshooting.md)
+lists what to do about what they find.)
 
 - **`checkDevices()`** asks every device from `simpleV5LibConfig.h` if it is plugged in
   (`installed()`), reads the motor temperatures (V5 motors lose power above 55 °C), and checks

@@ -367,6 +367,94 @@ TrackWidthResult measureTrackWidth() {
 }
 
 // ============================================================================
+// measureTopSpeed
+// ============================================================================
+
+const double TOP_SPEED_MIN_MS = 500;   // drives at least this long...
+const double TOP_SPEED_MAX_MS = 1500;  // ...and at most this long
+const double TOP_SPEED_STOP_MS = 400;  // then slows down over this long, so the wheels don't skid
+const int TOP_SPEED_SAMPLES = 151;     // one every 10 ms, up to TOP_SPEED_MAX_MS
+
+TopSpeedResult measureTopSpeed() {
+    TopSpeedResult result = {0, 0};
+    cancelMovement();
+    startReport("Measuring the top speed");
+    report("Full power forward for about a second:");
+    report("give it 6 feet of room.");
+    controllerMessage("Measuring...", "");
+
+    // The speed every 10 ms, from the moment full power starts
+    double speeds[TOP_SPEED_SAMPLES];
+    int count = 0;
+    double start_position = getPosition();
+    double start_time = Brain.timer(timeUnits::msec);
+    move(100, 100);
+    while (count < TOP_SPEED_SAMPLES) {
+        // (getMotorRate counts with the wheel size: corrected with measureWheelSize's result)
+        speeds[count] = getMotorRate() * drive_wheel_scale;
+        count++;
+        // Done when the speed has stopped growing: less than 1% faster than 200 ms ago
+        double time = Brain.timer(timeUnits::msec) - start_time;
+        if (time >= TOP_SPEED_MIN_MS && count > 20 && speeds[count - 1] < speeds[count - 21] * 1.01) {
+            break;
+        }
+        vexDelay(10);
+    }
+    // Slow down gently
+    double stop_start = Brain.timer(timeUnits::msec);
+    double stop_time = 0;
+    while (stop_time < TOP_SPEED_STOP_MS) {
+        double power = 100 * (1 - stop_time / TOP_SPEED_STOP_MS);
+        move(power, power);
+        vexDelay(10);
+        stop_time = Brain.timer(timeUnits::msec) - stop_start;
+    }
+    stopDriving(brakeType::brake);
+    double driven = (getPosition() - start_position) * drive_wheel_scale;
+
+    // The top speed: the average over the last 100 ms
+    double sum = 0;
+    int last = 0;
+    for (int i = count - 1; i >= 0 && i >= count - 10; i--) {
+        sum += speeds[i];
+        last++;
+    }
+    double top = sum / last;
+    if (top < 5) {
+        report("The robot drove %.1f in/s: does it drive forward?", top);
+        report("(backwards means the motor directions are wrong)");
+        controllerMessage("MEASURING FAILED", "see Brain screen");
+        return result;
+    }
+    // How long it took to get 63% of the way there (that's how a motor's response time is counted:
+    // after that long it gets 63% of the way to any new speed). Between two samples, count the
+    // time in between in proportion.
+    double response = 0;
+    for (int i = 1; i < count; i++) {
+        if (speeds[i] >= 0.63 * top) {
+            double part = (0.63 * top - speeds[i - 1]) / (speeds[i] - speeds[i - 1]);
+            response = (i - 1 + part) * 10;
+            break;
+        }
+    }
+    result.top_speed = top;
+    result.response_ms = response;
+
+    report("It drove %.0f inches.", driven);
+    if (count == TOP_SPEED_SAMPLES) {
+        report("Still speeding up after %.1f s: top speed is", TOP_SPEED_MAX_MS / 1000);
+        report("a bit more than this.");
+    }
+    report("Put these in simpleV5LibConfig.h:");
+    report("DRIVE_TOP_SPEED = %.1f  (now %.1f)", result.top_speed, DRIVE_TOP_SPEED);
+    report("DRIVE_RESPONSE_MS = %.0f  (now %.0f)", result.response_ms, DRIVE_RESPONSE_MS);
+    char line[32];
+    snprintf(line, sizeof(line), "Top %.1f in/s", result.top_speed);
+    controllerMessage(line, "see Brain screen");
+    return result;
+}
+
+// ============================================================================
 // measureWheelSize
 // ============================================================================
 

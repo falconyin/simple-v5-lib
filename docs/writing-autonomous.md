@@ -121,6 +121,12 @@ Every normal movement takes two **tolerances** after where to go: `PID_turn(90, 
 there once the robot is within 0.5 degrees of 90 *and* turning slower than 0.2 degrees per 10 ms
 (for 50 ms: `TURN_SETTLE_MS`). For drives they are inches and inches per second.
 
+For points and poses, "within 0.5 inches" means the point is less than 0.5 inches **ahead** of the
+robot. The robot can't drive sideways, so a point a little beside it counts as reached: the example
+in [section 7](#7-a-whole-routine) ends its pose 0.7 to 0.8 inches beside the goal point, with a
+tolerance of 0.5. A tighter tolerance doesn't make that smaller, it only makes the movement wait
+longer ([Odometry and paths, section 3](odometry-and-paths.md#3-driving-to-a-point)).
+
 - **Start with** 0.5 and 0.2 for turns, points and poses, and 0.3 and 0.2 for `PID_forward`, like the examples.
 - **Looser is faster**: `PID_turn(90, 2, 1)` stops waiting sooner. Use it where a little off doesn't
   matter (a turn before a long drive to a point, which aims by itself anyway).
@@ -173,11 +179,16 @@ was knocked away) stops the whole routine there. The movements and `arm.waitUnti
 built in; your own loops need one too:
 
 ```cpp
+intake.spin(100, false);  // unjam off: when the piece is all the way in, the intake stops and isJammed() says so
 double start = Brain.timer(msec);
-while (!intake.isJammed() && Brain.timer(msec) - start < 2000) { // a piece is all the way in, or 2 s
+while (!intake.isJammed() && Brain.timer(msec) - start < 2000) { // the piece is in, or 2 s are up
     wait(10, msec);
 }
+intake.stop();
 ```
+
+(With the normal `intake.spin(100)`, a jam makes the intake run backwards for a moment, which would
+push the piece out again, and `isJammed()` is only true during that moment.)
 
 ## 7. A whole routine
 
@@ -197,11 +208,13 @@ void scoringAuton() {
     // 2. Curve to the goal, arriving facing it, and raise the arm on the way
     arm.moveTo(ARM_SCORE);
     PID_drive_to_pose(flipX(24), 48, flipHeading(90), 0.5, 0.2);
-    arm.waitUntilDone(); // the arm must be up before scoring
 
-    // 3. Score: push the game piece out
-    intake.spin(-100);
-    wait(400, msec);
+    // 3. Score: push the game piece out, but only with the arm up. waitUntilDone() is false if the arm
+    //    didn't get there in ARM_TIMEOUT_MS (blocked?): then keep the piece and go on.
+    if (arm.waitUntilDone()) {
+        intake.spin(-100);
+        wait(400, msec);
+    }
     intake.stop();
 
     // 4. Back away from the goal, and lower the arm while driving
@@ -218,7 +231,7 @@ void scoringAuton() {
 ```
 
 `flipX` and `flipHeading` are the next section: on the left starting spot they change nothing. On
-the simulator the routine takes 7.3 seconds, passes 0.7 to 0.8 inches from the goal point, and parks
+the simulator the routine takes 7.3 to 7.4 seconds, passes 0.7 to 0.8 inches from the goal point, and parks
 within 0.1 inch and 0.2 degrees (10 runs). The left half of this picture is that run:
 
 ![The example routine from the left starting spot, and mirrored from the right one](images/autonomous-mirrored.svg)
@@ -226,7 +239,7 @@ within 0.1 inch and 0.2 degrees (10 runs). The left half of this picture is that
 How it is put together, step by step:
 
 - **The arm and the intake work while the robot drives** (steps 1, 2 and 4); the routine only waits
-  for the arm where scoring needs it.
+  for the arm where scoring needs it, and only scores if the arm really got up.
 - **Step 2 is a pose**, so the robot arrives lined up with the goal without a turn at the end.
 - **Step 4 is step by step**: "10 inches back out of the goal" is easier to say as a distance than
   as a point.
@@ -302,7 +315,7 @@ picking up). How to choose `exit_range` is in
 before a sharp corner, about 8 before a gentle one.
 
 **Know your time.** Print how long the routine took (like the example does), and keep a good margin
-under the autonomous period: 15 seconds in a match. The example's 7.3 seconds are the simulator's; a
+under the autonomous period: 15 seconds in a match. The example's 7.3 to 7.4 seconds are the simulator's; a
 real robot is slower, and a routine that only just fits in practice won't fit after a bump. If it
 doesn't fit, chain where there is room, loosen the tolerances on movements that don't need to be
 exact ([section 5](#5-the-numbers-tolerances-timeouts-max-speed)), and leave out the step that

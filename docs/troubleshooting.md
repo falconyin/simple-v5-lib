@@ -37,7 +37,7 @@ messages are quoted here the way the library prints them.
 
 | What you see | Most likely | What to do |
 | --- | --- | --- |
-| The controller rumbles and shows `2 PROBLEMS` (or `1 PROBLEM`) | `checkDevices()` found something | The Brain screen lists it: `No motor on port 3 (left back motor)`, `Port 7 is used twice: ...`, `left front motor is hot (55 C): it loses power`. Fix the port in the config or the cable, or let a hot motor cool down |
+| The controller rumbles and shows `2 PROBLEMS` (or `1 PROBLEM`) | `checkDevices()` found something | The Brain screen lists it: `No motor on port 3 (left back)`, `Port 7 is used twice: ...`, `left front motor is hot (55 C): it loses power`. Fix the port in the config or the cable, or let a hot motor cool down |
 | The autonomous selector doesn't show | `startAutonSelector()` before any `addAuton`, or not called | `addAuton` once per routine, then `startAutonSelector()` at the end of `pre_auton` |
 | A routine is missing from the selector | More than 10 routines | Only the first 10 `addAuton`s count |
 | The heading slowly changes while the robot stands still, or is off from the start | The robot moved while `calibrateInertial()` ran | Keep the robot completely still for those 2 seconds; restart the program to calibrate again |

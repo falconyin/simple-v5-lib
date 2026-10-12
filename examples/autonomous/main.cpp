@@ -53,11 +53,13 @@ void scoringAuton() {
     // 2. Curve to the goal, arriving facing it, and raise the arm on the way
     arm.moveTo(ARM_SCORE);
     PID_drive_to_pose(flipX(24), 48, flipHeading(90), 0.5, 0.2);
-    arm.waitUntilDone(); // the arm must be up before scoring
 
-    // 3. Score: push the game piece out
-    intake.spin(-100);
-    wait(400, msec);
+    // 3. Score: push the game piece out, but only with the arm up. waitUntilDone() is false if the arm
+    //    didn't get there in ARM_TIMEOUT_MS (blocked?): then keep the piece and go on.
+    if (arm.waitUntilDone()) {
+        intake.spin(-100);
+        wait(400, msec);
+    }
     intake.stop();
 
     // 4. Back away from the goal, and lower the arm while driving

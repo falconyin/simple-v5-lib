@@ -26,8 +26,10 @@ change a message, change the quote). Their pictures in `docs/images` are generat
 `docs/diagrams/diagrams.cpp` drives the library on the simulator, draws the paths as SVG (and the tuning
 graphs from every line `graphOnScreen` drew on the simulator's Brain screen), and prints the guides' numbers
 (`CXX=... docs/diagrams/make_diagrams.sh`). It `#include`s `examples/autonomous/main.cpp` (with its `main`
-renamed) and drives that example's own `leftSpot()`/`rightSpot()`, so the autonomous guide's picture and
-times follow the example; the walk-through in the guide copies the routine and must be updated with it.
+renamed) and drives that example's own `leftSpot()`/`rightSpot()`, so the autonomous guide's paths and
+times follow the example. The picture's step labels and the points its numbers measure against are
+copies of the example's coordinates (constants at the top of `autonomousExample`), and the guide's
+walk-through copies the routine: update both with the example.
 Rerun it after changing how point/pose driving, chaining,
 the PID or the turn/forward loops behave, a gain in the config, or `examples/autonomous`, look at the pictures, and compare the
 printed numbers with the guides. Each number is a range over 10 runs started 0–9 ms apart: where a run starts between the

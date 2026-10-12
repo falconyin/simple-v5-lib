@@ -4,7 +4,7 @@ A beginner-friendly VEX V5 C++ library with simple, easy-to-understand PID contr
 
 ## What is simple-v5-lib?
 
-This library provides basic autonomous movement for the VEX V5 system using a PID Controller for two main movements: **Forward** and **Turn**.
+This library drives a VEX V5 robot in autonomous with PID controllers: driving straight, turning in place, swing turns and arcs, and, with odometry, driving to points on the field and chaining them into smooth paths. It also has driver control, an arm and an intake, and tools to set up and tune your robot ([What's Included](#whats-included) lists everything).
 
 Standard "move-until-target" code can cause robots to overshoot and lose accuracy. A PID controller solves this by moving fast at the beginning, slowing down at the end, and coming to a stop just as the robot reaches the target. It achieves this by using three different parts:
 * **Proportional (P):** The main driving force, proportional to your distance from the target.
@@ -17,6 +17,12 @@ Advanced public libraries (like PROS) often use complex methods that are difficu
 
 This library uses simple language and easy logic. It helps you get the hang of it so you can eventually build your own custom library from scratch. When you want to know how something works inside, [docs/how-it-works.md](docs/how-it-works.md) explains every part.
 
+The guides in `docs`:
+* [How it works](docs/how-it-works.md): the ideas behind every part of the library.
+* [First day on a real robot](docs/first-robot-checklist.md): every check and tuning step for a new robot, in order.
+* [Tuning the PID](docs/tuning.md): what the Brain screen graph shows, and which gain to change.
+* [Odometry and paths](docs/odometry-and-paths.md): driving to points and poses, chaining them, and correcting the position from a wall.
+
 ## What's Included
 
 * **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest`, `PID_swing` and `PID_arc` (drive along a curve), with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight, and traction control (`DRIVE_SLIP_LIMIT`) keeps the wheels from spinning or skidding on the tiles, which would throw the distance measurements off.
@@ -24,7 +30,7 @@ This library uses simple language and easy logic. It helps you get the hang of i
 * **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes. `PID_drive_to_point_chain` turns a list of field points into one smooth path.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
 * **Mechanisms:** an `Arm` (or lift) that moves to a position and holds it there, with a joystick in driver control too, and an `Intake` that notices when it jams (the motor draws a lot of current but can't turn) and runs backwards a moment to free it.
-* **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal.
+* **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal. The [tuning guide](docs/tuning.md) shows what the graph looks like for each kind of mistake, and which gain fixes it.
 * **Tuning from the controller:** `tuneWithController()` changes kP, kI and kD with the controller buttons and tries them right away, no re-downloading. The gains are saved on the SD card, and `loadGainsFromSDCard()` brings them back in the next run.
 * **SD card logging:** `logToSDCard(true)` saves every movement's data in a CSV file, to look at after a match.
 * **Robot setup checks:** `checkDevices()` finds unplugged or overheating devices, `testDrivetrain()` finds motors set to the wrong direction, and `measureTrackWidth()` / `measureWheelSize()` measure your robot for `simpleV5LibConfig.h`.
@@ -42,7 +48,7 @@ This is an example of a drivetrain and what the motor names (left front, left mi
 ![Drivetrain](images/drivetrainExampleImage.png)
 4. **Check and measure:** Run `examples/robotSetup` once. It checks that everything is plugged in and that the motor directions are right, and measures your track width and wheel size. Put the numbers it shows into simpleV5LibConfig.h. On a new robot, [First day on a real robot](docs/first-robot-checklist.md) goes through every check and tuning step in order, as a checklist.
 5. **Calibrate:** Call `calibrateInertial();` once before any movement (for example in `pre_auton`). It takes about 2 seconds, and the robot must stay still.
-6. **Tune:** Run `examples/tuning`: it lets you change kp, ki and kd from the controller and try them right away, with a live graph on the Brain screen. Copy the gains it shows into simpleV5LibConfig.h when you're done. The [tuning guide](docs/how-it-works.md#9-tuning-step-by-step) and this [YouTube Video Tutorial](https://www.youtube.com/watch?v=WN3_vxA_D04) explain how.
+6. **Tune:** Run `examples/tuning`: it lets you change kp, ki and kd from the controller and try them right away, with a live graph on the Brain screen. Copy the gains it shows into simpleV5LibConfig.h when you're done. The [tuning guide](docs/tuning.md) shows what each gain does on the Brain screen graph, step by step, and this [YouTube Video Tutorial](https://www.youtube.com/watch?v=WN3_vxA_D04) explains how to tune.
 7. **Code:** Start writing your autonomous routes! `examples/competitionTemplate` is a full competition program that uses everything, `examples/odometry` drives to field points, `examples/mechanisms` runs an arm and an intake, and the other examples show a single movement. Every movement stops on its own after a timeout (see `TURN_TIMEOUT_MS` and `FORWARD_TIMEOUT_MS`), so a stuck robot won't freeze your whole autonomous.
 
 ## Quick Reference

@@ -98,6 +98,16 @@ static void showLine(int row, const char* text) {
     vexDelay(50);
 }
 
+// How a try went: time, overshoot and error at the end. Short names, the line is only 19 letters long.
+// Not static: docs/diagrams/diagrams.cpp writes it under the tuning pictures, so they can't drift apart.
+void tunerResultLine(const MovementResult &result, char *line, int size) {
+    if (result.timed_out) {
+        snprintf(line, size, "TIMEOUT err %.2g", result.error);
+    } else {
+        snprintf(line, size, "%.2fs ov%.2g e%.2g", result.time_ms / 1000, result.overshoot, fabs(result.error));
+    }
+}
+
 static void showTuner(int mode, int part, bool have_result, const MovementResult &result) {
     char line[64]; // longer than the screen, the controller cuts it off
     PIDGains &gains = gainsFor(mode);
@@ -107,11 +117,8 @@ static void showTuner(int mode, int part, bool have_result, const MovementResult
     showLine(2, line);
     if (!have_result) {
         snprintf(line, sizeof(line), "A:try X:mode B:end");
-    } else if (result.timed_out) {
-        snprintf(line, sizeof(line), "TIMEOUT err %.2g", result.error);
     } else {
-        // time, overshoot and error at the end. Short names, the line is only 19 letters long.
-        snprintf(line, sizeof(line), "%.2fs ov%.2g e%.2g", result.time_ms / 1000, result.overshoot, fabs(result.error));
+        tunerResultLine(result, line, sizeof(line));
     }
     showLine(3, line);
 }

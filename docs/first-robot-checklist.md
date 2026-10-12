@@ -114,7 +114,7 @@ Off by a few percent in one direction only? Redo step 3. ([How it works, section
 Run `examples/tuning` (the controller buttons are explained at the top of its `main.cpp`). Steps
 5 to 7 are one tuning session: it starts on TURN, and X moves on to FORWARD, SWING, then ARC.
 A tries a 90° turn, the next A turns back. Follow the
-[tuning guide](how-it-works.md#9-tuning-step-by-step): kI and kD to 0, raise kP until it swings
+[tuning guide](tuning.md) (with pictures of the graph at each step): kI and kD to 0, raise kP until it swings
 around the target, raise kD until the overshoot (`ov`) is near 0, kI only if it stops short.
 
 **Don't press B until step 7 is done**: B saves all four sets of gains on the SD card and ends

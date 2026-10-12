@@ -15,14 +15,16 @@ narrative counterpart and is kept in sync with the code section by section. When
 update the matching section of that doc, the README quick reference, and `include/simpleV5lib.h`'s
 doc comments — these are treated as part of the deliverable, not optional extras.
 
-Two more user-facing docs depend on behaviour: `docs/first-robot-checklist.md` (the real-robot
-steps; keep it in sync when a sim-only constant changes) and `docs/odometry-and-paths.md` (how to
+Three more user-facing docs depend on behaviour: `docs/first-robot-checklist.md` (the real-robot
+steps; keep it in sync when a sim-only constant changes), `docs/odometry-and-paths.md` (how to
 use odometry, poses, chains and wall resets, with measured simulator numbers such as the
-`exit_range` table and the short-pose miss). Its pictures in `docs/images` are generated:
-`docs/diagrams/diagrams.cpp` drives the library on the simulator, draws the paths as SVG and prints
-the guide's numbers (`CXX=... docs/diagrams/make_diagrams.sh`). Rerun it after changing how
-point/pose driving or chaining behaves, look at the pictures, and compare the printed numbers with the
-guide. Each number is a range over 10 runs started 0–9 ms apart: where a run starts between the
+`exit_range` table and the short-pose miss) and `docs/tuning.md` (Brain-screen graphs of each tuning
+mistake, and tables of time/overshoot/end error per gain). Their pictures in `docs/images` are generated:
+`docs/diagrams/diagrams.cpp` drives the library on the simulator, draws the paths as SVG (and the tuning
+graphs from every line `graphOnScreen` drew on the simulator's Brain screen), and prints both guides' numbers
+(`CXX=... docs/diagrams/make_diagrams.sh`). Rerun it after changing how point/pose driving, chaining,
+the PID or the turn/forward loops behave, or a gain in the config, look at the pictures, and compare the
+printed numbers with the guides. Each number is a range over 10 runs started 0–9 ms apart: where a run starts between the
 library's 10 ms ticks can change a chained corner a lot, so a single run can't be trusted. The carrot
 in `pose-carrot.svg` comes from `poseCarrot()`, the part of `aimPoint` that is not `static` for this
 reason. `tests/run_tests.sh` builds `diagrams.cpp` (without running it), so a change that breaks it fails there.
@@ -75,11 +77,13 @@ The library only ever includes `"vex.h"`, which it never ships. Both builds supp
   but only switch inside `vexDelay`/`wait`. It can inject setup faults (`sim::unplugged`, `wrong_direction`, `sides_swapped`, `gyro_rate_flipped`, `wheel_diam`) which is
   how `src/robotSetup.cpp` is tested, and disturbances (`gain` for a weak side, `bump`, `push`, `obstacle`,
   `heat`). Its real-world layer (`sim::real`: delays, noise, drift, battery, grip) is off unless
-  `-DSIM_REALISTIC`; `sim::v` is the robot's true speed and `sim::wheel_v` the wheels', they differ while skidding, and
+  `-DSIM_REALISTIC`; `sim::real::friction` (a power deadband on the drive) is not part of it and only
+  `docs/diagrams` sets it, to show a robot stopping short; `sim::v` is the robot's true speed and `sim::wheel_v` the wheels', they differ while skidding, and
   `sim::slipped` adds up the forward/backward part of that difference (what drive-motor odometry gets wrong; a
   symmetric turn-in-place skid cancels out). A drive motor's `velocity(pct)` is the wheel speed as a percent of
   `MAXV`, like a real motor's percent of its cartridge speed. A `screen` keeps what was printed since its last
-  `clearScreen()` in `text`, so tests can check which message the library showed.
+  `clearScreen()` in `text`, so tests can check which message the library showed, and every `drawLine`/`printAt`
+  with its pen color in `drawn`, which is what the tuning pictures are drawn from.
 - `ci/vex.h` — a copy of the `vex.h` a fresh VEXcode project generates, used only so the SDK build
   compiles. Consumers already have this file.
 

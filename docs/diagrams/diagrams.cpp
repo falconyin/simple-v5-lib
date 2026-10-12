@@ -2,8 +2,10 @@
 // (tests/sim/vex.h): the library's own code drives those movements, and the picture shows where the
 // simulated robot went. The others (coordinates, offsets, the wall) are drawn from fixed numbers.
 // It also drives the guide's other examples and prints the numbers docs/odometry-and-paths.md quotes.
+// The tuning graphs (docs/tuning.md) are what the Brain screen shows during a movement: every line
+// the library drew on the simulator's screen, and their numbers are printed too.
 // Run docs/diagrams/make_diagrams.sh after changing how the robot drives, look at the pictures, and
-// compare the numbers with the guide.
+// compare the numbers with the guides.
 
 #include "vex.h"
 #include "simpleV5lib.h"
@@ -503,6 +505,164 @@ static void numbers() {
            chained.show().c_str(), faster.show("%.0f").c_str(), corners.show().c_str());
 }
 
+// ---------- The tuning graphs and numbers in docs/tuning.md ----------
+
+// In src/controllerTuner.cpp: the line the controller shows after a try in tuneWithController
+void tunerResultLine(const MovementResult &result, char *line, int size);
+
+static std::string controllerLine(const MovementResult &result) {
+    char line[64];
+    tunerResultLine(result, line, sizeof(line));
+    return line;
+}
+
+// The Brain screen after a movement with graphOnScreen(true): every line and text src/telemetry.cpp
+// drew on the simulator's screen (480 x 240, y 0 at the top), in the same places and colors, with a
+// time scale and the controller's line underneath.
+static void brainScreen(const std::string &folder, const char *file, const char *title,
+                        const std::vector<vex::drawing> &drawn, double timeout_ms, const MovementResult &result) {
+    const char *SCREEN = "#000000", *PENS[] = {"#ffffff", "#ff3b30", "#30d158", "#ffffff"}; // white, red, green, white
+    double pad = 16, w = 480, h = 240;
+    Picture p{0, 0, w, h, 1};
+    p.left = pad; p.top = pad; p.right = pad; p.bottom = 64;
+    auto X = [&](double x) { return pad + x; };
+    auto Y = [&](double y) { return pad + y; };
+    p.add(Picture::fmt("<rect x='%.1f' y='%.1f' width='%.0f' height='%.0f' rx='4' fill='%s'/>", X(0), Y(0), w, h, SCREEN));
+
+    // The lines, joined into one path per color where one starts at the end of the one before
+    std::string paths[4];
+    int end_x[4] = {-1, -1, -1, -1}, end_y[4] = {-1, -1, -1, -1};
+    for (auto &d : drawn) {
+        int pen = d.pen >= 0 && d.pen < 4 ? d.pen : 0;
+        if (!d.text.empty()) {
+            p.add(Picture::fmt("<text x='%.1f' y='%.1f' fill='%s' font-size='14'>", X(d.x1), Y(d.y1), PENS[pen]) + d.text + "</text>");
+            continue;
+        }
+        if (d.x1 != end_x[pen] || d.y1 != end_y[pen]) paths[pen] += Picture::fmt("M%.0f %.0f ", X(d.x1), Y(d.y1));
+        paths[pen] += Picture::fmt("L%.0f %.0f ", X(d.x2), Y(d.y2));
+        end_x[pen] = d.x2;
+        end_y[pen] = d.y2;
+    }
+    for (int pen : {3, 1, 2}) // the 0 line, then the error, then the power, like each tick draws them
+        if (!paths[pen].empty())
+            p.add("<path d='" + paths[pen] + Picture::fmt("' fill='none' stroke='%s' stroke-width='%s' stroke-linejoin='round'/>",
+                                                          PENS[pen], pen == 3 ? "1" : "1.5"));
+
+    // Under the screen: seconds, and what the controller shows
+    for (double s = 0; s <= timeout_ms / 1000 + 0.01; s += 0.5) {
+        double x = X(s * 1000 / timeout_ms * w);
+        p.add(Picture::fmt("<line x1='%.1f' y1='%.1f' x2='%.1f' y2='%.1f' stroke='%s' stroke-width='1'/>", x, Y(h), x, Y(h + 5), AXIS));
+        if (fmod(s, 1) < 0.01)
+            p.add(Picture::fmt("<text x='%.1f' y='%.1f' text-anchor='middle' fill='%s' font-size='11'>%g s</text>", x, Y(h + 18), INK_2, s));
+    }
+    p.add(Picture::fmt("<text x='%.1f' y='%.1f' fill='%s' font-size='13'>controller: </text>", X(0), Y(h + 46), INK_2));
+    p.add(Picture::fmt("<text x='%.1f' y='%.1f' fill='%s' font-size='13' font-family='Consolas, Menlo, monospace'>",
+                       X(78), Y(h + 46), INK) + controllerLine(result) + "</text>");
+    p.save(folder, file, title);
+}
+
+// The gains, and the friction the simulator is set to, for one example
+struct Example {
+    std::string file;     // the picture, or "" for a number only
+    std::string title;
+    bool turn;            // PID_turn(90, 0.5, 0.2), or PID_forward(24, 0.3, 0.2): what the tuner tries
+    double kp, ki, kd;
+    double friction = 0;  // % of power the wheels need before they move (sim::real::friction)
+    double size = 0;      // degrees or inches, 0 = the tuner's 90 or 24
+};
+
+static MovementResult runExample(const Example &e, int start_ms = 0) {
+    PIDGains turn = turnGains, forward = forwardGains;
+    startAtOrigin(start_ms);
+    recording = false;
+    sim::real::friction = e.friction;
+    if (e.turn) {
+        turnGains = {e.kp, e.ki, e.kd};
+        PID_turn(e.size ? e.size : 90, 0.5, 0.2);
+    } else {
+        forwardGains = {e.kp, e.ki, e.kd};
+        PID_forward(e.size ? e.size : 24, 0.3, 0.2);
+    }
+    MovementResult result = lastMovementResult();
+    sim::real::friction = 0;
+    turnGains = turn;
+    forwardGains = forward;
+    return result;
+}
+
+// The pictures' gains: the config's turn gains, and the mistakes tuning.md shows next to them
+static std::vector<Example> tuningPictures() {
+    using F = Picture;
+    return {
+        {"tune-p-only.svg", F::fmt("PID_turn(90) with kP %g and no kD: swings past and back", TURN_KP), true, TURN_KP, 0, 0},
+        {"tune-p-too-big.svg", "PID_turn(90) with kP 10 and no kD: swings until the timeout", true, 10, 0, 0},
+        {"tune-pd.svg", F::fmt("PID_turn(90) with kP %g and kD %g: gets there and stops", TURN_KP, TURN_KD), true,
+         TURN_KP, 0, TURN_KD},
+        {"tune-d-too-big.svg", F::fmt("PID_turn(90) with kP %g and kD 100: creeps in slowly", TURN_KP), true, TURN_KP, 0, 100},
+        {"tune-stops-short.svg", "PID_forward(24) with kP 6 and no kI, on wheels with friction: stops short", false, 6, 0,
+         FORWARD_KD, 8},
+        {"tune-with-ki.svg", "The same with kI 0.1: the I part pushes it the rest of the way", false, 6, 0.1, FORWARD_KD, 8},
+    };
+}
+
+static void tuningGraphs(const std::string &folder) {
+    for (auto &e : tuningPictures()) {
+        graphOnScreen(true);
+        MovementResult result = runExample(e);
+        graphOnScreen(false);
+        brainScreen(folder, e.file.c_str(), e.title.c_str(), Brain.Screen.drawn,
+                    e.turn ? TURN_TIMEOUT_MS : FORWARD_TIMEOUT_MS, result);
+    }
+}
+
+// The same example started STARTS times, 0 to STARTS - 1 ms apart: the controller's numbers, as ranges.
+// The error keeps its sign: + = stopped short of the target, - = went past it. A picture with the same
+// example is named after the numbers, and crossed off the list of pictures still to print.
+static void printExample(std::string label, const Example &e, std::vector<Example> &pictures) {
+    for (size_t i = 0; i < pictures.size(); i++) {
+        const Example &p = pictures[i];
+        if (p.turn == e.turn && p.kp == e.kp && p.ki == e.ki && p.kd == e.kd && p.friction == e.friction && p.size == e.size) {
+            label += " (" + p.file + ")";
+            pictures.erase(pictures.begin() + i);
+            break;
+        }
+    }
+    Range time, overshoot, error;
+    int timeouts = 0;
+    for (int start = 0; start < STARTS; start++) {
+        MovementResult r = runExample(e, start);
+        time.add(r.time_ms / 1000);
+        overshoot.add(r.overshoot);
+        error.add(r.error);
+        timeouts += r.timed_out;
+    }
+    printf("  %-40s %s s, overshoot %s, ends %s%s\n", label.c_str(), time.show("%.2f").c_str(), overshoot.show("%.2f").c_str(),
+           error.show("%.2f").c_str(), timeouts ? Picture::fmt(", %d of %d time out", timeouts, STARTS).c_str() : "");
+}
+
+static void tuningNumbers() {
+    std::vector<Example> pictures = tuningPictures(); // the ones no table below prints
+    printf("\ndocs/tuning.md: the controller's numbers, the smallest to the biggest of %d runs\n", STARTS);
+    printf("(ends: + = stopped short of the target, - = went past it)\n");
+    printf("The kD table, PID_turn(90) with kP %g, no kI:\n", TURN_KP);
+    for (double kd : {0.0, 10.0, 20.0, TURN_KD, 60.0, 100.0})
+        printExample(Picture::fmt("kD %g", kd), {"", "", true, TURN_KP, 0, kd}, pictures);
+    printf("Other sizes, the config's gains:\n");
+    for (double degrees : {30.0, 90.0, 180.0})
+        printExample(Picture::fmt("PID_turn(%g)", degrees), {"", "", true, TURN_KP, TURN_KI, TURN_KD, 0, degrees}, pictures);
+    for (double inches : {6.0, 24.0, 48.0})
+        printExample(Picture::fmt("PID_forward(%g)", inches), {"", "", false, FORWARD_KP, FORWARD_KI, FORWARD_KD, 0, inches},
+                     pictures);
+    printf("Stopping short, PID_forward(24) with kD %g and friction 8%% (FORWARD_INTEGRAL_RANGE %g):\n", FORWARD_KD,
+           FORWARD_INTEGRAL_RANGE);
+    for (double kp : {4.0, 6.0})
+        for (double ki : {0.0, 0.05, 0.1, 0.2})
+            printExample(Picture::fmt("kP %g, kI %g", kp, ki), {"", "", false, kp, ki, FORWARD_KD, 8}, pictures);
+    printf("The other pictures:\n");
+    std::vector<Example> rest = pictures;
+    for (auto &e : rest) printExample(Picture::fmt("kP %g, kI %g, kD %g", e.kp, e.ki, e.kd), e, pictures);
+}
+
 int main(int argc, char **argv) {
     std::string folder = argc > 1 ? argv[1] : "docs/images";
     calibrateInertial();
@@ -513,7 +673,9 @@ int main(int argc, char **argv) {
     boomerang(folder);
     poseLeads(folder);
     chainedSquare(folder);
+    tuningGraphs(folder);
     numbers();
+    tuningNumbers();
     fflush(stdout);
     _exit(0); // the library's background tasks never end
 }

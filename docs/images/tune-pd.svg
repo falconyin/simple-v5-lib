@@ -1,0 +1,24 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='512' height='320' viewBox='0 0 512 320' font-family='-apple-system, Segoe UI, Helvetica, Arial, sans-serif'>
+<title>PID_turn(90) with kP 3.2 and kD 36.7: gets there and stops</title>
+<rect width='100%' height='100%' rx='8' fill='#fcfcfb'/>
+<rect x='16.0' y='16.0' width='480' height='240' rx='4' fill='#000000'/>
+<text x='21.0' y='36.0' fill='#ffffff' font-size='14'>PID_turn  target 90.0</text>
+<text x='316.0' y='36.0' fill='#ff3b30' font-size='14'>error</text>
+<text x='396.0' y='36.0' fill='#30d158' font-size='14'>power</text>
+<path d='M16 146 L496 146 ' fill='none' stroke='#ffffff' stroke-width='1' stroke-linejoin='round'/>
+<path d='M16 46 L16 46 L17 46 L19 46 L20 47 L22 48 L24 49 L25 51 L27 53 L28 55 L30 57 L32 60 L33 63 L35 66 L36 70 L38 74 L40 78 L41 82 L43 86 L44 90 L46 94 L48 97 L49 101 L51 104 L52 107 L54 110 L56 113 L57 115 L59 118 L60 120 L62 122 L64 124 L65 125 L67 127 L68 128 L70 130 L72 131 L73 132 L75 133 L76 134 L78 135 L80 136 L81 136 L83 137 L84 138 L86 138 L88 139 L89 139 L91 140 L92 140 L94 141 L96 141 L97 141 L99 142 L100 142 L102 142 L104 143 L105 143 L107 143 L108 143 L110 143 L112 144 L113 144 L115 144 L116 144 L118 145 L120 145 L121 145 L123 145 L124 145 L126 146 L128 146 L129 146 ' fill='none' stroke='#ff3b30' stroke-width='1.5' stroke-linejoin='round'/>
+<path d='M16 146 L16 46 L17 46 L19 46 L20 46 L22 46 L24 46 L25 46 L27 46 L28 46 L30 46 L32 46 L33 46 L35 46 L36 49 L38 70 L40 87 L41 99 L43 109 L44 116 L46 122 L48 126 L49 129 L51 132 L52 134 L54 135 L56 137 L57 138 L59 139 L60 139 L62 140 L64 140 L65 141 L67 141 L68 142 L70 142 L72 142 L73 143 L75 143 L76 143 L78 143 L80 143 L81 144 L83 144 L84 144 L86 144 L88 144 L89 144 L91 144 L92 144 L94 145 L96 145 L97 145 L99 145 L100 145 L102 145 L104 145 L105 136 L107 147 L108 147 L110 136 L112 149 L113 136 L115 150 L116 136 L118 151 L120 136 L121 152 L123 150 L124 149 L126 148 L128 147 L129 147 ' fill='none' stroke='#30d158' stroke-width='1.5' stroke-linejoin='round'/>
+<line x1='16.0' y1='256.0' x2='16.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='16.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>0 s</text>
+<line x1='96.0' y1='256.0' x2='96.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<line x1='176.0' y1='256.0' x2='176.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='176.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>1 s</text>
+<line x1='256.0' y1='256.0' x2='256.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<line x1='336.0' y1='256.0' x2='336.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='336.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>2 s</text>
+<line x1='416.0' y1='256.0' x2='416.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<line x1='496.0' y1='256.0' x2='496.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='496.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>3 s</text>
+<text x='16.0' y='302.0' fill='#52514e' font-size='13'>controller: </text>
+<text x='94.0' y='302.0' fill='#0b0b0b' font-size='13' font-family='Consolas, Menlo, monospace'>0.72s ov0.13 e0.13</text>
+</svg>

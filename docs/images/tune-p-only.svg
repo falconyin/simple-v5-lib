@@ -1,0 +1,24 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='512' height='320' viewBox='0 0 512 320' font-family='-apple-system, Segoe UI, Helvetica, Arial, sans-serif'>
+<title>PID_turn(90) with kP 3.2 and no kD: swings past and back</title>
+<rect width='100%' height='100%' rx='8' fill='#fcfcfb'/>
+<rect x='16.0' y='16.0' width='480' height='240' rx='4' fill='#000000'/>
+<text x='21.0' y='36.0' fill='#ffffff' font-size='14'>PID_turn  target 90.0</text>
+<text x='316.0' y='36.0' fill='#ff3b30' font-size='14'>error</text>
+<text x='396.0' y='36.0' fill='#30d158' font-size='14'>power</text>
+<line x1='16.0' y1='146.0' x2='496.0' y2='146.0' stroke='#ffffff' stroke-width='1'/>
+<path d='M16.0 146.0 L16.0 46.0 L19.2 46.0 L22.4 46.0 L25.6 46.0 L28.8 46.0 L32.0 46.0 L35.2 46.0 L38.4 46.0 L41.6 46.0 L44.8 46.0 L48.0 46.0 L51.2 54.6 L54.4 88.6 L57.6 121.5 L60.8 151.4 L64.0 177.9 L67.2 201.2 L70.4 221.3 L73.6 238.0 L76.8 246.0 L80.0 246.0 L83.2 246.0 L86.4 246.0 L89.6 246.0 L92.8 246.0 L96.0 246.0 L99.2 246.0 L102.4 241.6 L105.6 225.6 L108.8 206.6 L112.0 186.0 L115.2 165.7 L118.4 147.2 L121.6 131.7 L124.8 119.4 L128.0 110.4 L131.2 104.7 L134.4 102.2 L137.6 103.0 L140.8 106.9 L144.0 113.2 L147.2 121.0 L150.4 129.5 L153.6 137.8 L156.8 145.4 L160.0 151.8 L163.2 156.7 L166.4 159.9 L169.6 161.5 L172.8 161.7 L176.0 160.6 L179.2 158.5 L182.4 155.8 L185.6 152.8 L188.8 149.8 L192.0 146.9 L195.2 144.5 L198.4 142.6 L201.6 136.0 L204.8 136.0 L208.0 136.0 L211.2 142.1 L214.4 143.5 L217.6 144.9 L220.8 146.1 L224.0 147.1 L227.2 156.0 L230.4 156.0 L233.6 147.3 L236.8 146.4 L240.0 145.6 ' fill='none' stroke='#30d158' stroke-width='1.5' stroke-linejoin='round'/>
+<path d='M16.0 46.0 L16.0 46.0 L19.2 46.6 L22.4 48.3 L25.6 51.2 L28.8 55.2 L32.0 60.4 L35.2 66.7 L38.4 74.1 L41.6 82.6 L44.8 92.3 L48.0 102.9 L51.2 114.3 L54.4 126.1 L57.6 137.5 L60.8 147.9 L64.0 157.1 L67.2 165.2 L70.4 172.1 L73.6 178.0 L76.8 182.6 L80.0 186.2 L83.2 188.6 L86.4 189.9 L89.6 190.0 L92.8 189.0 L96.0 186.9 L99.2 183.6 L102.4 179.2 L105.6 173.6 L108.8 167.0 L112.0 159.9 L115.2 152.8 L118.4 146.4 L121.6 141.0 L124.8 136.8 L128.0 133.6 L131.2 131.6 L134.4 130.8 L137.6 131.1 L140.8 132.4 L144.0 134.6 L147.2 137.3 L150.4 140.3 L153.6 143.2 L156.8 145.8 L160.0 148.0 L163.2 149.7 L166.4 150.8 L169.6 151.4 L172.8 151.4 L176.0 151.1 L179.2 150.3 L182.4 149.4 L185.6 148.4 L188.8 147.3 L192.0 146.3 L195.2 145.5 L198.4 144.8 L201.6 144.4 L204.8 144.2 L208.0 144.3 L211.2 144.7 L214.4 145.1 L217.6 145.6 L220.8 146.0 L224.0 146.4 L227.2 146.6 L230.4 146.7 L233.6 146.5 L236.8 146.1 L240.0 145.8 ' fill='none' stroke='#ff3b30' stroke-width='2' stroke-linejoin='round'/>
+<line x1='16.0' y1='256.0' x2='16.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='16.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>0 s</text>
+<line x1='96.0' y1='256.0' x2='96.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<line x1='176.0' y1='256.0' x2='176.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='176.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>1 s</text>
+<line x1='256.0' y1='256.0' x2='256.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<line x1='336.0' y1='256.0' x2='336.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='336.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>2 s</text>
+<line x1='416.0' y1='256.0' x2='416.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<line x1='496.0' y1='256.0' x2='496.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='496.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>3 s</text>
+<text x='16.0' y='302.0' fill='#52514e' font-size='13'>controller: </text>
+<text x='94.0' y='302.0' fill='#0b0b0b' font-size='13' font-family='Consolas, Menlo, monospace'>1.41s ov40 e0.25</text>
+</svg>

@@ -1,0 +1,24 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='512' height='320' viewBox='0 0 512 320' font-family='-apple-system, Segoe UI, Helvetica, Arial, sans-serif'>
+<title>PID_turn(90) with kP 3.2 and kD 36.7: gets there and stops</title>
+<rect width='100%' height='100%' rx='8' fill='#fcfcfb'/>
+<rect x='16.0' y='16.0' width='480' height='240' rx='4' fill='#000000'/>
+<text x='21.0' y='36.0' fill='#ffffff' font-size='14'>PID_turn  target 90.0</text>
+<text x='316.0' y='36.0' fill='#ff3b30' font-size='14'>error</text>
+<text x='396.0' y='36.0' fill='#30d158' font-size='14'>power</text>
+<line x1='16.0' y1='146.0' x2='496.0' y2='146.0' stroke='#ffffff' stroke-width='1'/>
+<path d='M16.0 146.0 L16.0 46.0 L19.2 46.0 L22.4 46.0 L25.6 46.0 L28.8 46.0 L32.0 46.0 L35.2 46.0 L38.4 70.2 L41.6 99.8 L44.8 116.6 L48.0 126.4 L51.2 132.2 L54.4 135.8 L57.6 138.2 L60.8 139.8 L64.0 141.0 L67.2 141.9 L70.4 142.6 L73.6 143.1 L76.8 143.6 L80.0 143.9 L83.2 144.3 L86.4 144.5 L89.6 144.7 L92.8 144.9 L96.0 145.1 L99.2 145.2 L102.4 145.3 L105.6 136.0 L108.8 147.2 L112.0 149.2 L115.2 150.7 L118.4 151.8 L121.6 152.6 L124.8 149.6 L128.0 148.0 ' fill='none' stroke='#30d158' stroke-width='1.5' stroke-linejoin='round'/>
+<path d='M16.0 46.0 L16.0 46.0 L19.2 46.6 L22.4 48.3 L25.6 51.2 L28.8 55.2 L32.0 60.4 L35.2 66.7 L38.4 74.1 L41.6 82.3 L44.8 90.4 L48.0 98.0 L51.2 104.7 L54.4 110.6 L57.6 115.8 L60.8 120.2 L64.0 124.0 L67.2 127.3 L70.4 130.1 L73.6 132.4 L76.8 134.4 L80.0 136.2 L83.2 137.6 L86.4 138.9 L89.6 139.9 L92.8 140.8 L96.0 141.6 L99.2 142.3 L102.4 142.8 L105.6 143.3 L108.8 143.8 L112.0 144.2 L115.2 144.7 L118.4 145.1 L121.6 145.6 L124.8 145.9 L128.0 146.1 ' fill='none' stroke='#ff3b30' stroke-width='2' stroke-linejoin='round'/>
+<line x1='16.0' y1='256.0' x2='16.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='16.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>0 s</text>
+<line x1='96.0' y1='256.0' x2='96.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<line x1='176.0' y1='256.0' x2='176.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='176.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>1 s</text>
+<line x1='256.0' y1='256.0' x2='256.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<line x1='336.0' y1='256.0' x2='336.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='336.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>2 s</text>
+<line x1='416.0' y1='256.0' x2='416.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<line x1='496.0' y1='256.0' x2='496.0' y2='261.0' stroke='#a8a79f' stroke-width='1'/>
+<text x='496.0' y='274.0' text-anchor='middle' fill='#52514e' font-size='11'>3 s</text>
+<text x='16.0' y='302.0' fill='#52514e' font-size='13'>controller: </text>
+<text x='94.0' y='302.0' fill='#0b0b0b' font-size='13' font-family='Consolas, Menlo, monospace'>0.72s ov0.13 e0.13</text>
+</svg>

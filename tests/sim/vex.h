@@ -19,7 +19,8 @@
 //   wait, like on the V5 brain. Time is simulated, so the tests run much faster than real time.
 // - The real world can be switched on (sim::real, -DSIM_REALISTIC): readings and commands arrive
 //   10 ms late, speed readings are noisy, the IMU drifts, the battery is drained, and wheels that
-//   are pushed harder than the ground can hold spin faster than the robot moves.
+//   are pushed harder than the ground can hold spin faster than the robot moves. Friction (a
+//   drive side that needs a few % of power before it moves) is separate and only used by docs/diagrams.
 #define _USE_MATH_DEFINES // M_PI: the VEX SDK has it, but MinGW only declares it with this
 #include <cmath>
 #include <cstdarg>
@@ -110,6 +111,9 @@ inline double battery = 12;        // volts: 100% power gives less speed on a dr
 inline double grip = 1e9;          // the most the ground can speed a wheel up, in/s^2: more and the
                                    // wheel spins, the encoder counts inches the robot didn't drive
 inline double calibrate_ms = 0;    // how long the IMU takes to calibrate (2 s on a real one)
+inline double friction = 0;        // % of power a drive side needs before it moves at all; less and it
+                                   // stands still. Not part of realistic(): docs/diagrams uses it to show
+                                   // a robot that stops short (what kI is for), the tests don't
 }
 inline void realistic(bool on) {
     real::sensor_delay_ms = on ? 10 : 0;
@@ -236,7 +240,9 @@ inline void step() {               // 1 ms
     applyCommands(commands.ago(real::command_delay_ms));
     stepMechanisms();
     for (int s = 0; s < 2; s++) {
-        double target = mode[s] == 0 ? cmd[s] / 100 * MAXV * gain[s] * real::battery / 12 : 0;
+        double power = cmd[s] * gain[s] * real::battery / 12;
+        double moving = fmax(0, fabs(power) - real::friction); // friction takes the first few %
+        double target = mode[s] == 0 ? (power < 0 ? -moving : moving) / 100 * MAXV : 0;
         double tau = mode[s] == 0 ? TAU : (mode[s] == 1 ? 0.5 : 0.03);
         wheel_v[s] += (target - wheel_v[s]) * 0.001 / tau;
         // The ground can only speed the robot up so fast (grip): a wheel that wants more spins

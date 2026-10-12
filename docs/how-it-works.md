@@ -4,7 +4,8 @@ This page explains the ideas behind every part of the library, in the order you 
 You don't need any of it to *use* the library. But when you want to know why the robot
 does something, or want to write your own library later, start here. Every section points
 to the code that does it. (How to *use* odometry, points and paths, with pictures, is in
-[Odometry and paths](odometry-and-paths.md).)
+[Odometry and paths](odometry-and-paths.md), and how to tune the gains, with pictures of the graph,
+in [Tuning the PID](tuning.md).)
 
 - [1. PID: the heart of every movement](#1-pid-the-heart-of-every-movement)
 - [2. When is a movement finished?](#2-when-is-a-movement-finished)
@@ -475,6 +476,7 @@ its PID aims `exit_range` inches past the point, and it hands over when the poin
 
 Tune turns first (they are easiest to see), then forward, then swings and arcs.
 `examples/tuning` runs `tuneWithController()` with the live graph on the Brain screen.
+[Tuning the PID](tuning.md) goes through these steps with pictures of what the graph looks like at each one.
 
 1. **Start simple**: set kI and kD to 0.
 2. **kP**: raise it until the robot gets to the target quickly but swings back and forth

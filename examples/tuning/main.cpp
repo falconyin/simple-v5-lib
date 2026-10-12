@@ -32,7 +32,7 @@ int main() {
     //   1.25 seconds to finish, went 2.3 past the target at most, ended 0.12 from it.
     tuneWithController();
 
-    // How to tune, in short (docs/how-it-works.md has more):
+    // How to tune, in short (docs/tuning.md has more, with pictures of the graph):
     // 1. Set kI and kD to 0. Raise kP until the robot gets to the target quickly but
     //    swings back and forth around it.
     // 2. Raise kD until it stops swinging: the overshoot ("ov") gets close to 0.

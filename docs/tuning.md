@@ -2,14 +2,18 @@
 
 Every movement in this library is driven by a PID controller with three numbers, the **gains**:
 kP, kI and kD ([How it works, section 1](how-it-works.md#1-pid-the-heart-of-every-movement)
-explains what each one does). The gains in `simpleV5LibConfig.h` were tuned on the simulator.
-Your robot is heavier or lighter, its motors and wheels are different, and its wheels rub
-differently on the tiles, so it needs its own gains. This page shows how to find them: what the
-Brain screen shows during a movement, what each kind of mistake looks like, and which gain to change.
+explains what each one does). The gains in `simpleV5LibConfig.h` are only a starting point: the
+turn gains were tuned on the simulator, `FORWARD_KD` has to be tuned again
+([section 7](#7-try-other-sizes-then-the-other-movements)), and the swing and arc gains are copies
+of the turn and forward gains that nobody has tuned yet. And your robot is heavier or lighter, its
+motors and wheels are different, and its wheels rub differently on the tiles, so it needs its own
+gains anyway. This page shows how to find them: what the Brain screen shows during a movement, what
+each kind of mistake looks like, and which gain to change.
 
-The pictures below are exactly what the Brain screen shows with `graphOnScreen(true)`, drawn from
-the library running on the simulator ([Making the pictures](#making-the-pictures)). A real robot's
-lines are a bit rougher, but have the same shapes.
+The pictures below are what the Brain screen shows with `graphOnScreen(true)`: every line the
+library drew on the simulator's screen, in the same place and color
+([Making the pictures](#making-the-pictures)). A real robot's lines are a bit rougher, but have the
+same shapes.
 
 - [1. Before you start](#1-before-you-start)
 - [2. The tuner on the controller](#2-the-tuner-on-the-controller)
@@ -80,8 +84,10 @@ This is a good 90° turn (the config's kP 3.2 and kD 36.7, no kI):
   5 for driving. A good movement uses only the left part.
 
 Here the red line slides down onto the white line without crossing it, and the green line drops
-from full power to almost nothing as the robot gets close. The small wiggle in the green line at
-the end is the robot settling on the target.
+from full power to almost nothing as the robot gets close. The jagged bit at the end of the green
+line isn't the PID: the robot had almost stopped just short of the target, so the library gave it
+small pushes (`TURN_MIN_SPEED`, more in [section 5](#5-kd-stop-the-swinging)). They carry it the
+last bit, and a hair past the target (`ov0.13`).
 
 The graph's height is the whole movement, so a small leftover error (an inch out of 24) is only a
 few pixels above the white line. For small numbers, read `e` on the controller.
@@ -131,7 +137,9 @@ This is what too much kD looks like:
 
 The brake is so strong that the robot creeps the last part of the turn: the red line bends over
 slowly. When it has almost stopped, short of the target, the library gives it a small push
-(`TURN_MIN_SPEED`, the jagged part of the green line at the end).
+(`TURN_MIN_SPEED`, 10%). That is the jagged part of the green line at the end: each push gets the
+robot moving, the D part brakes it again, and the next push follows. With this much kD that goes on
+for about 0.4 seconds.
 
 On a real robot, too much kD has a second sign: the robot **shakes or buzzes**, and the green line
 jumps up and down quickly. The speed readings are a little noisy, and kD multiplies the noise
@@ -263,7 +271,7 @@ the numbers you give each movement, decide when it counts as there:
 
 | Setting | What it does | Change it when |
 | --- | --- | --- |
-| `error_tolerance`, `speed_tolerance` (the first two numbers of every movement) | Closer than the first, slower than the second: there. `PID_turn(90, 0.5, 0.2)` | Movements wait at the end for no visible reason (too tight), or end a bit off (too loose) |
+| `error_tolerance`, `speed_tolerance` (the two numbers after where to go: 0.5 and 0.2 in `PID_turn(90, 0.5, 0.2)`, in `PID_swing` and `PID_arc` after the side or the radius) | Closer than the first, slower than the second: there. `_chain` movements have none, they hand over at `exit_range` instead | Movements wait at the end for no visible reason (too tight), or end a bit off (too loose) |
 | `TURN_SETTLE_MS`, `FORWARD_SETTLE_MS` | How long it must stay inside both tolerances (50 ms) | Rarely: it stops a robot flying past from counting as there |
 | `TURN_TIMEOUT_MS`, `FORWARD_TIMEOUT_MS` | The time limit: also how wide the graph is | A long movement that's fine times out anyway (or pass a timeout to that movement) |
 | `TURN_INTEGRAL_RANGE`, `FORWARD_INTEGRAL_RANGE` | The I part only adds up closer than this | The robot stops short outside it ([section 6](#6-ki-only-if-it-stops-short)) |
@@ -289,8 +297,8 @@ the numbers you give each movement, decide when it counts as there:
 ## Making the pictures
 
 The graphs on this page are drawn by `docs/diagrams/diagrams.cpp`: it runs each movement on the
-simulator with `logToTerminal(true)`, reads back what the library printed, and draws it the way
-`graphOnScreen` does on the Brain screen. It also prints the numbers in this page's tables. The
+simulator with `graphOnScreen(true)`, and draws every line and text the library put on the
+simulator's Brain screen. It also prints the numbers in this page's tables. The
 simulator's wheels have no friction, except in the two pictures of [section 6](#6-ki-only-if-it-stops-short)
 and their table (`sim::real::friction` in `tests/sim/vex.h`). After changing how a movement
 drives, run `docs/diagrams/make_diagrams.sh`, look at the pictures again, and compare the numbers

@@ -241,7 +241,9 @@ inline void step() {               // 1 ms
     stepMechanisms();
     for (int s = 0; s < 2; s++) {
         double power = cmd[s] * gain[s] * real::battery / 12;
-        double moving = fmax(0, fabs(power) - real::friction); // friction takes the first few %
+        // friction takes the first few %. (Not fmax(0, ...): that would turn a NaN command into 0, and the
+        // robot would quietly stand still instead of going wildly wrong so that a test fails.)
+        double moving = fabs(power) < real::friction ? 0 : fabs(power) - real::friction;
         double target = mode[s] == 0 ? (power < 0 ? -moving : moving) / 100 * MAXV : 0;
         double tau = mode[s] == 0 ? TAU : (mode[s] == 1 ? 0.5 : 0.03);
         wheel_v[s] += (target - wheel_v[s]) * 0.001 / tau;
@@ -287,11 +289,19 @@ enum rateUnits { dps };
 struct color { int c; static const color red, green, white; };
 inline const color color::red{1}, color::green{2}, color::white{3};
 // A screen keeps what was printed on it since it was last cleared (text, one line per print), so a
-// test can check which message the library showed
-struct screen { int lines = 0, clears = 0; std::string text; void clearScreen(){ clears++; text.clear(); } void setCursor(int,int){}
+// test can check which message the library showed. It also keeps every drawLine and printAt since then
+// (drawn, with the pen color), so docs/diagrams can draw exactly what the Brain screen showed.
+struct drawing { int pen; int x1, y1, x2, y2; std::string text; }; // text = a printAt at (x1, y1), else a line
+struct screen { int lines = 0, clears = 0, pen = 3; std::string text; std::vector<drawing> drawn;
+  void clearScreen(){ clears++; text.clear(); drawn.clear(); } void setCursor(int,int){}
   int print(const char *format, ...){ char line[256]; va_list values; va_start(values, format);
     vsnprintf(line, sizeof(line), format, values); va_end(values); text += line; text += '\n'; return 0; }
-  int printAt(int,int,const char*, ...){return 0;} int printAt(int,int,bool,const char*, ...){return 0;} void setPenColor(const color&){} void drawLine(int,int,int x2,int y2){ lines++; if (x2<0||x2>480||y2<0||y2>240) printf("OFFSCREEN %d %d\n", x2, y2); }
+  void printedAt(int x, int y, const char *format, va_list values){ char line[256];
+    vsnprintf(line, sizeof(line), format, values); drawn.push_back({pen, x, y, x, y, line}); }
+  int printAt(int x,int y,const char *format, ...){ va_list values; va_start(values, format); printedAt(x, y, format, values); va_end(values); return 0; }
+  int printAt(int x,int y,bool,const char *format, ...){ va_list values; va_start(values, format); printedAt(x, y, format, values); va_end(values); return 0; }
+  void setPenColor(const color &c){ pen = c.c; }
+  void drawLine(int x1,int y1,int x2,int y2){ lines++; drawn.push_back({pen, x1, y1, x2, y2, ""}); if (x2<0||x2>480||y2<0||y2>240) printf("OFFSCREEN %d %d\n", x2, y2); }
   bool pressing(){return false;} int xPosition(){return 0;} void clearLine(int){} };
 // The SD card keeps its files in memory. writes counts the writes, and fastest_write_speed is the
 // fastest a wheel was moving during any write (the library should only write when the robot stopped).

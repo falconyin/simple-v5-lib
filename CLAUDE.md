@@ -21,7 +21,7 @@ use odometry, poses, chains and wall resets, with measured simulator numbers suc
 `exit_range` table and the short-pose miss) and `docs/tuning.md` (Brain-screen graphs of each tuning
 mistake, and tables of time/overshoot/end error per gain). Their pictures in `docs/images` are generated:
 `docs/diagrams/diagrams.cpp` drives the library on the simulator, draws the paths as SVG (and the tuning
-graphs from what `logToTerminal` prints, laid out like `graphOnScreen`), and prints both guides' numbers
+graphs from every line `graphOnScreen` drew on the simulator's Brain screen), and prints both guides' numbers
 (`CXX=... docs/diagrams/make_diagrams.sh`). Rerun it after changing how point/pose driving, chaining,
 the PID or the turn/forward loops behave, or a gain in the config, look at the pictures, and compare the
 printed numbers with the guides. Each number is a range over 10 runs started 0–9 ms apart: where a run starts between the
@@ -82,7 +82,8 @@ The library only ever includes `"vex.h"`, which it never ships. Both builds supp
   `sim::slipped` adds up the forward/backward part of that difference (what drive-motor odometry gets wrong; a
   symmetric turn-in-place skid cancels out). A drive motor's `velocity(pct)` is the wheel speed as a percent of
   `MAXV`, like a real motor's percent of its cartridge speed. A `screen` keeps what was printed since its last
-  `clearScreen()` in `text`, so tests can check which message the library showed.
+  `clearScreen()` in `text`, so tests can check which message the library showed, and every `drawLine`/`printAt`
+  with its pen color in `drawn`, which is what the tuning pictures are drawn from.
 - `ci/vex.h` — a copy of the `vex.h` a fresh VEXcode project generates, used only so the SDK build
   compiles. Consumers already have this file.
 

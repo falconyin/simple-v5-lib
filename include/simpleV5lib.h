@@ -291,9 +291,12 @@ void cancelMovement();
 //   PID_forward(24, 0.3, 0.2);         // normal movement: stops at the end
 //
 // With odometry, chain field points into a smooth path:
-//   PID_drive_to_point_chain(0, 24, 4);   // move on 4 inches before (0, 24)
-//   PID_drive_to_point_chain(24, 48, 4);  // curves towards the next point without stopping
+//   PID_drive_to_point_chain(0, 24, 2);   // move on 2 inches before (0, 24)
+//   PID_drive_to_point_chain(24, 48, 2);  // curves towards the next point without stopping
 //   PID_drive_to_point(48, 48, 0.5, 0.2); // stops exactly at the last point
+// Before a sharp corner use a small exit_range (about 2), before a gentle one a big one (about 8):
+// a sharp corner can't be taken at speed, and moving on early only makes the robot swing wide.
+// (docs/odometry-and-paths.md has the measurements.)
 // ============================================================================
 
 void PID_forward_chain(double target, double exit_range, double timeout_ms = FORWARD_TIMEOUT_MS, double max_speed = 100);

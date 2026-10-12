@@ -16,15 +16,16 @@
 <line x1='208.0' y1='237.2' x2='250.0' y2='237.2' stroke='#2a78d6' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='3 3'/>
 <rect x='188.4' y='262.4' width='39.2' height='11.2' rx='3' fill='#eb6834'/>
 <line x1='177.2' y1='212.0' x2='177.2' y2='268.0' stroke='#eb6834' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='3 3'/>
-<rect x='224.8' y='121.0' width='22.4' height='14.0' rx='2' fill='#1baf7a'/>
+<rect x='224.8' y='128.0' width='22.4' height='14.0' rx='2' fill='#1baf7a'/>
 <line x1='208.0' y1='128.0' x2='236.0' y2='128.0' stroke='#1baf7a' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='3 3'/>
 <line x1='194.0' y1='212.0' x2='194.0' y2='128.0' stroke='#1baf7a' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='3 3'/>
-<line x1='236.0' y1='121.0' x2='236.0' y2='51.0' stroke='#1baf7a' stroke-width='1.5' stroke-linecap='round'/>
+<line x1='236.0' y1='128.0' x2='236.0' y2='51.0' stroke='#1baf7a' stroke-width='1.5' stroke-linecap='round'/>
 <path d='M236.0 51.0 L239.5 59.3 L232.5 59.3 Z' fill='#1baf7a'/>
 <text x='362.0' y='86.0' text-anchor='start' fill='#0b0b0b' font-size='13'><tspan font-weight='600'>Front distance sensor</tspan></text>
 <text x='362.0' y='104.0' text-anchor='start' fill='#52514e' font-size='13'>DISTANCE_FRONT_AHEAD = 6   (ahead: +)</text>
 <text x='362.0' y='122.0' text-anchor='start' fill='#52514e' font-size='13'>DISTANCE_FRONT_RIGHT = 2   (right: +)</text>
-<line x1='248.6' y1='128.0' x2='355.0' y2='91.6' stroke='#1baf7a' stroke-width='1.0' stroke-linecap='round'/>
+<text x='362.0' y='140.0' text-anchor='start' fill='#52514e' font-size='12'>measured to the sensor's front, where the beam starts</text>
+<line x1='248.6' y1='135.0' x2='355.0' y2='91.6' stroke='#1baf7a' stroke-width='1.0' stroke-linecap='round'/>
 <text x='362.0' y='198.0' text-anchor='start' fill='#0b0b0b' font-size='13'><tspan font-weight='600'>Forward tracking wheel</tspan></text>
 <text x='362.0' y='216.0' text-anchor='start' fill='#52514e' font-size='13'>TRACKING_FORWARD_OFFSET = 3   (right: +)</text>
 <line x1='257.0' y1='205.0' x2='355.0' y2='203.6' stroke='#2a78d6' stroke-width='1.0' stroke-linecap='round'/>

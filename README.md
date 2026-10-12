@@ -60,7 +60,7 @@ PID_arc(0, -24, 0.5, 0.2);                          // same, but backing up (neg
 setHeading(0);                                      // "the robot is facing 0 degrees right now" (fine mid-chain too)
 
 // Odometry: field points in inches, x to the right, y forward
-setPose(0, 0, 0);                                   // "I'm at (0, 0) facing 0" (calibrateInertial does this too)
+setPose(0, 0, 0);                                   // "I'm at (0, 0) facing 0" (where calibrateInertial starts odometry)
 PID_drive_to_point(24, 24, 0.5, 0.2);               // turn towards (24, 24) and drive there
 PID_drive_to_point(0, 0, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);  // back up to (0, 0)
 PID_turn_to_point(0, 48, 0.5, 0.2);                 // face (0, 48)
@@ -72,7 +72,8 @@ resetXFromWall(RIGHT_SENSOR, 70);                   // stopped, a distance senso
 // Chained: don't stop between movements (much faster). End with a normal movement.
 PID_forward_chain(24, 3);   // move on to the next movement 3 inches before the target
 PID_turn_chain(90, 10);     // move on 10 degrees before the target
-PID_drive_to_point_chain(24, 24, 4);  // field points too: move on 4 inches before (24, 24), curving to the next
+PID_drive_to_point_chain(24, 24, 2);  // field points too: move on 2 inches before (24, 24), curving to the next
+                                      // (about 2 before a sharp corner, about 8 before a gentle one)
 PID_drive_to_pose_chain(48, 24, 90, 4);  // and poses
 PID_forward(24, 0.3, 0.2);  // stops exactly at the end
 

@@ -1,7 +1,9 @@
 // Draws the diagrams in docs/images as SVG files. The path diagrams come from the simulator
 // (tests/sim/vex.h): the library's own code drives those movements, and the picture shows where the
 // simulated robot went. The others (coordinates, offsets, the wall) are drawn from fixed numbers.
-// Run docs/diagrams/make_diagrams.sh after changing how the robot drives, and look at the result.
+// It also drives the guide's other examples and prints the numbers docs/odometry-and-paths.md quotes.
+// Run docs/diagrams/make_diagrams.sh after changing how the robot drives, look at the pictures, and
+// compare the numbers with the guide.
 
 #include "vex.h"
 #include "simpleV5lib.h"
@@ -125,10 +127,10 @@ static int recorder() {
     return 0;
 }
 
-// Stop, and put the robot at (0, 0) facing 0 (like the tests' reset)
-static void startAtOrigin() {
+// Stop, and put the robot at (0, 0) facing 0 (like the tests' reset), extra_ms later than usual
+static void startAtOrigin(int extra_ms = 0) {
     stopDriving();
-    vexDelay(500);
+    vexDelay(500 + extra_ms);
     sim::x = 0;
     sim::y = 0;
     sim::forgetReadings();
@@ -208,19 +210,20 @@ static void robotOffsets(const std::string &folder) {
     p.add(Picture::fmt("<rect x='%.1f' y='%.1f' width='%.1f' height='%.1f' rx='3' fill='%s'/>",
                        p.X(-1.4), p.Y(-4 + 0.4), 2.8 * p.scale, 0.8 * p.scale, ORANGE));
     p.line(-2.2, 0, -2.2, -4, ORANGE, 1.5, " stroke-dasharray='3 3'");
-    // Front distance sensor, 6 inches ahead and 2 to the right
+    // Front distance sensor: its front (where the beam starts) 6 inches ahead, 2 to the right
     p.add(Picture::fmt("<rect x='%.1f' y='%.1f' width='%.1f' height='%.1f' rx='2' fill='%s'/>",
-                       p.X(2 - 0.8), p.Y(6 + 0.5), 1.6 * p.scale, 1.0 * p.scale, AQUA));
+                       p.X(2 - 0.8), p.Y(6), 1.6 * p.scale, 1.0 * p.scale, AQUA));
     p.line(0, 6, 2, 6, AQUA, 1.5, " stroke-dasharray='3 3'");
     p.line(-1, 0, -1, 6, AQUA, 1.5, " stroke-dasharray='3 3'");
-    p.arrow(2, 6.5, 2, 11.5, AQUA, 1.5);
+    p.arrow(2, 6, 2, 11.5, AQUA, 1.5);
 
     // The labels, to the right of the robot
     double lx = 11;
     p.text(lx, 9, "<tspan font-weight='600'>Front distance sensor</tspan>");
     p.text(lx, 9, "DISTANCE_FRONT_AHEAD = 6   (ahead: +)", "start", INK_2, 0, 18);
     p.text(lx, 9, "DISTANCE_FRONT_RIGHT = 2   (right: +)", "start", INK_2, 0, 36);
-    p.line(2.9, 6, lx - 0.5, 8.6, AQUA, 1);
+    p.text(lx, 9, "measured to the sensor's front, where the beam starts", "start", INK_2, 0, 54, 12);
+    p.line(2.9, 5.5, lx - 0.5, 8.6, AQUA, 1);
     p.text(lx, 1, "<tspan font-weight='600'>Forward tracking wheel</tspan>");
     p.text(lx, 1, "TRACKING_FORWARD_OFFSET = 3   (right: +)", "start", INK_2, 0, 18);
     p.line(3.5, 0.5, lx - 0.5, 0.6, BLUE, 1);
@@ -234,11 +237,11 @@ static void robotOffsets(const std::string &folder) {
 static void wallReset(const std::string &folder) {
     Picture p{30, -4, 78, 26, 12};
     p.right = 30;
-    double wall = 72, x = 50, y = 10, heading = 80, ahead = 6, right = 2;
+    double wall = 70, x = 48, y = 10, heading = 80, ahead = 6, right = 2;
     p.add(Picture::fmt("<rect x='%.1f' y='%.1f' width='%.1f' height='%.1f' fill='%s'/>",
-                       p.X(wall), p.Y(26), 6 * p.scale, 30 * p.scale, GRID));
+                       p.X(wall), p.Y(26), (p.x1 - wall) * p.scale, 30 * p.scale, GRID));
     p.line(wall, -4, wall, 26, INK, 3);
-    p.text(wall, 24, "wall at x = 72", "start", INK, 8, 4);
+    p.text(wall, 24, Picture::fmt("wall at x = %g", wall), "start", INK, 8, 4);
 
     p.robot(x, y, heading, 15, INK_2);
     p.dot(x, y, 4.5, INK);
@@ -255,30 +258,23 @@ static void wallReset(const std::string &folder) {
     p.text((sensor.first + wall) / 2, (sensor.second + hit_y) / 2, Picture::fmt("reading = %.1f in", reading), "middle", INK, 0, -12);
     // Straight on would be along x: the angle between them must be under DISTANCE_RESET_MAX_ANGLE
     p.line(sensor.first, sensor.second, wall, sensor.second, ORANGE, 1.5, " stroke-dasharray='4 4'");
-    p.text(wall, sensor.second, "10° off straight (at most 20)", "end", ORANGE, -8, 18, 12);
+    p.text(wall, sensor.second, Picture::fmt("%g° off straight (at most %g)", fabs(90 - heading), DISTANCE_RESET_MAX_ANGLE),
+           "end", ORANGE, -8, 18, 12);
 
-    p.text(30, -4, "x = 72 - reading × sin(80°) - sensor offset in x", "start", INK, 0, 30, 13);
+    p.text(30, -4, Picture::fmt("x = %g - reading × sin(%g°) - sensor offset in x", wall, heading), "start", INK, 0, 30, 13);
     p.bottom = 50;
     p.save(folder, "wall-reset.svg", "resetXFromWall: the wall's x, back along the beam, then from the sensor to the robot's center");
 }
 
-// The carrot for a robot at (x, y) driving forward to the pose (tx, ty, th): the same rule as aimPoint
-// in src/simpleV5lib.cpp (which is static, so it can't be called from here). Returns whether the
-// look-ahead moved it.
+// In src/simpleV5lib.cpp: where PID_drive_to_pose's carrot is, for a robot at (robot_x, robot_y)
+void poseCarrot(double robot_x, double robot_y, double target_x, double target_y, double target_heading,
+                double lead, bool backwards, double &x, double &y);
+
+// The carrot for a robot at (x, y) driving forward to the pose (tx, ty, th). Returns whether the
+// look-ahead moved it (it is closer to the target than lead × distance).
 static bool carrot(double x, double y, double tx, double ty, double th, double lead, double &cx, double &cy) {
-    double line_x = sin(th * M_PI / 180), line_y = cos(th * M_PI / 180);
-    double behind = lead * hypot(tx - x, ty - y);
-    double back = (tx - x) * line_x + (ty - y) * line_y, beside = (tx - x) * line_y - (ty - y) * line_x;
-    double look_ahead = 2 * POINT_AIM_DISTANCE;
-    bool moved = false;
-    if (fabs(beside) < look_ahead) {
-        double limit = fmax(back - sqrt(look_ahead * look_ahead - beside * beside), 0);
-        moved = limit < behind;
-        behind = fmin(behind, limit);
-    }
-    cx = tx - behind * line_x;
-    cy = ty - behind * line_y;
-    return moved;
+    poseCarrot(x, y, tx, ty, th, lead, false, cx, cy);
+    return hypot(tx - cx, ty - cy) < lead * hypot(tx - x, ty - y) - 0.01;
 }
 
 // PID_drive_to_pose: the carrot point the robot steers towards, at a few moments of the drive
@@ -318,7 +314,7 @@ static void boomerang(const std::string &folder) {
     p.dot(8, 3.4, 5, ORANGE);
     p.text(9.5, 3.4, "its carrot then (dashed: where it steers)", "start", INK, 0, 4, 12);
     p.circle(8, 0.8, 6, ORANGE);
-    p.text(9.5, 0.8, "near the line: the carrot stays 12 in ahead", "start", INK, 0, 4, 12);
+    p.text(9.5, 0.8, Picture::fmt("near the line: the carrot stays %g in ahead", 2 * POINT_AIM_DISTANCE), "start", INK, 0, 4, 12);
     p.pose(0, 0, 0, INK);
     p.text(0, 0, "start", "start", INK_2, 8, 16);
     p.pose(tx, ty, th, INK);
@@ -388,6 +384,124 @@ static void chainedSquare(const std::string &folder) {
     p.save(folder, "chained-points.svg", "Four corners driven one by one, and the same corners as a chain");
 }
 
+// ---------- The numbers in docs/odometry-and-paths.md ----------
+// Printed, not drawn: after a change, compare them with the guide's text and tables.
+//
+// Each one is driven STARTS times, starting 0, 1, 2, ... ms later. The library's loops run every 10 ms,
+// and where the start falls between their ticks changes the result a little, and at some corners a
+// lot (a chain can hand over one tick earlier or later). So the guide quotes the range, not one run.
+const int STARTS = 10;
+
+// The smallest and biggest of a number over the runs
+struct Range {
+    double low = 1e9, high = -1e9;
+    void add(double value) { low = fmin(low, value); high = fmax(high, value); }
+    std::string show(const char *format = "%.1f") const {
+        std::string a = Picture::fmt(format, low), b = Picture::fmt(format, high);
+        return a == b ? a : a + " to " + b;
+    }
+};
+
+static double timeTaken() { return (recorded.back().t - recorded.front().t) / 1000; }
+
+// How close the robot came to (x, y)
+static double closestTo(double x, double y) {
+    double closest = 1e9;
+    for (auto &s : recorded) closest = fmin(closest, hypot(s.x - x, s.y - y));
+    return closest;
+}
+
+// How far the robot got from the straight line a -> b, after it came closest to a (the corner)
+static double swingOut(double ax, double ay, double bx, double by) {
+    size_t corner = 0;
+    for (size_t i = 0; i < recorded.size(); i++)
+        if (hypot(recorded[i].x - ax, recorded[i].y - ay) < hypot(recorded[corner].x - ax, recorded[corner].y - ay)) corner = i;
+    double length = hypot(bx - ax, by - ay), along_x = (bx - ax) / length, along_y = (by - ay) / length, most = 0;
+    for (size_t i = corner; i < recorded.size(); i++)
+        most = fmax(most, fabs((recorded[i].x - ax) * along_y - (recorded[i].y - ay) * along_x));
+    return most;
+}
+
+static void numbers() {
+    printf("\nEach number: the smallest to the biggest of %d runs, started 0 to %d ms apart\n", STARTS, STARTS - 1);
+    printf("\nSection 4, PID_drive_to_pose(24, 36, 90) from (0, 0, 0): how far from the target it ends\n");
+    for (double lead : {0.0, 0.3, 0.6, 1.0}) {
+        Range miss, heading_off;
+        for (int start = 0; start < STARTS; start++) {
+            startAtOrigin(start);
+            PID_drive_to_pose(24, 36, 90, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, false, lead);
+            recording = false;
+            miss.add(hypot(sim::x - 24, sim::y - 36));
+            heading_off.add(fabs(getInertial() - 90));
+        }
+        printf("  lead %g: %s in, heading %s degrees off\n", lead, miss.show().c_str(), heading_off.show().c_str());
+    }
+    Range short_miss;
+    for (int start = 0; start < STARTS; start++) {
+        startAtOrigin(start);
+        PID_drive_to_pose(10, 10, 0, 0.5, 0.2);
+        recording = false;
+        short_miss.add(hypot(sim::x - 10, sim::y - 10));
+    }
+    printf("  the short pose (10, 10, 0): %s in\n", short_miss.show().c_str());
+
+    printf("\nSection 5, the exit_range table: three points from (0, 0, 0), the corner at the first one\n");
+    struct { const char *name; double points[3][2]; } paths[] = {
+        {"gentle", {{0, 24}, {10, 48}, {20, 72}}},
+        {"sharp", {{0, 24}, {24, 24}, {48, 24}}},
+    };
+    for (auto &path : paths) {
+        auto &p = path.points;
+        Range stopping;
+        for (int start = 0; start < STARTS; start++) {
+            startAtOrigin(start);
+            for (auto &point : p) PID_drive_to_point(point[0], point[1], 0.5, 0.2);
+            recording = false;
+            stopping.add(timeTaken());
+        }
+        printf("  %s, normal movements: %s s\n", path.name, stopping.show().c_str());
+        for (double exit_range : {2.0, 4.0, 8.0}) {
+            Range time, swing, corner;
+            for (int start = 0; start < STARTS; start++) {
+                startAtOrigin(start);
+                PID_drive_to_point_chain(p[0][0], p[0][1], exit_range);
+                PID_drive_to_point_chain(p[1][0], p[1][1], exit_range);
+                PID_drive_to_point(p[2][0], p[2][1], 0.5, 0.2);
+                recording = false;
+                time.add(timeTaken());
+                swing.add(swingOut(p[0][0], p[0][1], p[2][0], p[2][1]));
+                corner.add(closestTo(p[0][0], p[0][1]));
+            }
+            printf("  %s, exit_range %g: %s s, swings out %s in, passes %s in from the corner\n", path.name, exit_range,
+                   time.show().c_str(), swing.show().c_str(), corner.show().c_str());
+        }
+    }
+
+    printf("\nSection 5, the square in chained-points.svg\n");
+    Range stopping, chained, faster, corners;
+    for (int start = 0; start < STARTS; start++) {
+        startAtOrigin(start);
+        PID_drive_to_point(0, 24, 0.5, 0.2);
+        PID_drive_to_point(24, 24, 0.5, 0.2);
+        PID_drive_to_point(24, 0, 0.5, 0.2);
+        PID_drive_to_point(0, 0, 0.5, 0.2);
+        recording = false;
+        double stop_time = timeTaken();
+        startAtOrigin(start);
+        PID_drive_to_point_chain(0, 24, 2);
+        PID_drive_to_point_chain(24, 24, 2);
+        PID_drive_to_point_chain(24, 0, 2);
+        PID_drive_to_point(0, 0, 0.5, 0.2);
+        recording = false;
+        stopping.add(stop_time);
+        chained.add(timeTaken());
+        faster.add(100 * (1 - timeTaken() / stop_time));
+        for (auto &c : {std::make_pair(0, 24), std::make_pair(24, 24), std::make_pair(24, 0)}) corners.add(closestTo(c.first, c.second));
+    }
+    printf("  stopping: %s s, chained: %s s (%s%% less), passes %s in from the corners\n", stopping.show().c_str(),
+           chained.show().c_str(), faster.show("%.0f").c_str(), corners.show().c_str());
+}
+
 int main(int argc, char **argv) {
     std::string folder = argc > 1 ? argv[1] : "docs/images";
     calibrateInertial();
@@ -398,6 +512,7 @@ int main(int argc, char **argv) {
     boomerang(folder);
     poseLeads(folder);
     chainedSquare(folder);
+    numbers();
     fflush(stdout);
     _exit(0); // the library's background tasks never end
 }

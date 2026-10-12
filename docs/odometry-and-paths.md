@@ -29,11 +29,13 @@ The robot's position is three numbers:
 - **heading**: degrees, **clockwise** from heading 0, from the inertial sensor.
 
 Where (0, 0) is and which way heading 0 points is up to you: they are wherever the robot was when
-you said so. `calibrateInertial()` sets the robot to (0, 0) facing 0, and `setPose` puts it anywhere:
+you said so. Odometry starts at (0, 0) facing 0 when you call `calibrateInertial()` (once, before
+autonomous), and `setPose` puts the robot anywhere, at any time:
 
 ```cpp
 calibrateInertial();   // keep the robot still for about 2 seconds; now it is at (0, 0), facing 0
 setPose(-48, -60, 90); // or: "the robot is at (-48, -60), facing 90"
+setPose(0, 0, 0);      // start over from here (calling calibrateInertial again would not do that)
 getX(); getY();        // where the robot is now, in inches
 getInertial();         // which way it faces, in degrees
 ```
@@ -138,7 +140,7 @@ In the last 12 inches the robot steers more and more by the target heading itsel
 - **Smaller** = a straighter drive that turns harder at the end. Lead 0 drives straight at the point
   and turns to the heading on the way in.
 
-All four end at the target facing 90 (in the simulator: within 1 inch and 2 degrees).
+All four end at the target facing 90 (in the simulator: within 1 inch and 1 degree).
 
 When *not* to use it:
 
@@ -146,8 +148,8 @@ When *not* to use it:
   curve into. The robot drives there and turns around on the spot, which `PID_drive_to_point` and
   `PID_turn` do just as well.
 - **The pose is close and well to the side** (like `(10, 10, 0)`, about a foot away and 10 inches
-  beside its line): there is no room to curve, and the robot ends 2 to 6 inches beside the target.
-  Use `PID_drive_to_point` and a turn.
+  beside its line): there is no room to curve, and the robot ends inches beside the target (2.5 for
+  that one, in the simulator). Use `PID_drive_to_point` and a turn.
 
 ## 5. Paths: chaining points
 
@@ -163,25 +165,29 @@ PID_drive_to_point(0, 0, 0.5, 0.2);    // the last one is normal: it stops exact
 
 ![Four corners driven one by one, and the same corners as a chain](images/chained-points.svg)
 
-The chain is about a third faster. The price is that the path is round: the robot drives through
-each corner point (within half an inch, in the simulator) but can't turn sharply at speed, so after a
+The chain is about a third faster. The price is that the path is round: the robot passes close to
+each corner point (within about an inch, in the simulator) but can't turn sharply at speed, so after a
 sharp corner it swings out and comes back. Mind that next to walls and game objects.
 
 **Choosing `exit_range`** (the third number): the bigger it is, the earlier the robot moves on, and
-the faster it is still going when it does. Measured in the simulator on a path of three points with
-one corner in the middle (the time is for the whole path; "swings out" is how far the robot gets
-from the straight line after the corner):
+the faster it is still going when it does. Measured in the simulator on two paths of three chained
+points, starting at (0, 0) facing 0, so the corner is at the first point, (0, 24). The time is for
+the whole path; "swings out" is how far the robot gets from the straight line between the corner and
+the last point. Each path was driven 10 times, started a few milliseconds apart, and where the runs
+differ the table shows the range:
 
 | exit_range | gentle corner (23°): (0, 24) → (10, 48) → (20, 72) | sharp corner (90°): (0, 24) → (24, 24) → (48, 24) |
 |---|---|---|
-| normal movements (stop at every point) | 4.1 s | 4.3 s |
+| normal movements (stop at every point) | 4.1 s | 4.2 s |
 | 2 | 2.4 s, swings out 1.5 in | 2.5 s, swings out 6 in |
-| 4 | 2.1 s, swings out 1.4 in | 3.2 s, swings out 9 in |
-| 8 | 2.1 s, swings out 0.7 in | 3.5 s, swings out 18 in |
+| 4 | 2.1 to 2.4 s, swings out 1.4 to 3 in | 3.1 to 3.2 s, swings out 9 to 10 in |
+| 8 | 2.0 to 2.1 s, swings out 0.7 in | 3.5 s, swings out 17 to 18 in |
 
-So: **gentle corners like a big exit_range (4 to 8), sharp corners a small one (about 2)**. A sharp
-corner can't be taken at speed anyway, so moving on earlier only makes the robot swing wider, and
-coming back from that takes longer.
+So: **gentle corners like a big exit_range (about 8), sharp corners a small one (about 2)**. On the
+gentle corner 8 was the fastest and stayed closest to the line every time; 4 was sometimes as good,
+sometimes no faster than 2 and twice as wide, depending on exactly when it handed over. A sharp corner
+can't be taken at speed anyway, so moving on earlier only makes the robot swing wider, and coming back
+from that takes longer.
 
 More rules of a chain:
 
@@ -260,7 +266,7 @@ Tips:
 | Every distance is a little short or long (24 in drives 23) | `WHEEL_DIAMETER_INCH` or the gear ratio | Run `measureWheelSize` ([checklist](first-robot-checklist.md)) |
 | x and y drift during turns in place (with tracking wheels) | A tracking wheel offset | Run `measureTrackWidth` after `measureWheelSize`: it measures the offsets too |
 | x and y count the wrong way (driving forward makes y go down) | A reversed tracking wheel | Flip `TRACKING_..._REVERSED`; push the robot by hand and watch `getX()`/`getY()` |
-| The robot turns the wrong way to a point | Field picture mixed up, or the gyro sign | x is to the *right*, heading clockwise: check with `examples/odometry`. Then `testDrivetrain()` |
+| The robot turns the wrong way to a point | The field picture mixed up: x is to the *right*, heading clockwise | Check with `examples/odometry`. If `PID_turn(90)` turns left too, run `testDrivetrain()` |
 | Drifts a few inches over a routine, worse after pushing | Slipping drive wheels | Tracking wheels, and wall resets |
 | A drive to a pose ends inches beside the target | A short pose well to the side ([section 4](#4-arriving-at-a-heading-driving-to-a-pose)) | `PID_drive_to_point` and a turn |
 | A chain swings wide past a corner | `exit_range` too big for a sharp corner | Smaller `exit_range` there ([section 5](#5-paths-chaining-points)) |
@@ -269,6 +275,7 @@ Tips:
 ## Making the pictures
 
 The pictures in `docs/images` are drawn by `docs/diagrams/diagrams.cpp`, which runs the library on the
-simulator and records where the simulated robot went. After changing how the robot drives, run
-`docs/diagrams/make_diagrams.sh` (it needs the same C++17 compiler as `tests/run_tests.sh`) and look
-at the pictures again.
+simulator and records where the simulated robot went. It also drives the other examples on this page
+and prints the numbers quoted here (the exit_range table, how close poses and corners end). After
+changing how the robot drives, run `docs/diagrams/make_diagrams.sh` (it needs the same C++17 compiler
+as `tests/run_tests.sh`), look at the pictures again, and compare the numbers with this page.

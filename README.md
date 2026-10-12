@@ -22,6 +22,8 @@ The guides in `docs`:
 * [First day on a real robot](docs/first-robot-checklist.md): every check and tuning step for a new robot, in order.
 * [Tuning the PID](docs/tuning.md): what the Brain screen graph shows, and which gain to change.
 * [Odometry and paths](docs/odometry-and-paths.md): driving to points and poses, chaining them, and correcting the position from a wall.
+* [Writing autonomous](docs/writing-autonomous.md): putting movements together into a routine, one routine for both starting spots, and testing it.
+* [Troubleshooting](docs/troubleshooting.md): what you see, the most likely cause, and what to do.
 
 ## What's Included
 
@@ -35,7 +37,7 @@ The guides in `docs`:
 * **SD card logging:** `logToSDCard(true)` saves every movement's data in a CSV file, to look at after a match.
 * **Robot setup checks:** `checkDevices()` finds unplugged or overheating devices, `testDrivetrain()` finds motors set to the wrong direction, and `measureTrackWidth()` / `measureWheelSize()` measure your robot for `simpleV5LibConfig.h`.
 * **Driver control:** `tankDrive()` and `arcadeDrive()`, with a joystick deadband and curve.
-* **Autonomous selector:** pick your routine on the Brain screen or the controller before the match.
+* **Autonomous selector:** pick your routine on the Brain screen or the controller before the match. [Writing autonomous](docs/writing-autonomous.md) shows how to write a routine once and mirror it for the other starting spot.
 * **A reusable `PIDController`:** the same one the drivetrain (and `Arm`) uses. Use it for your own mechanisms too.
 
 ## How to Use This Library
@@ -49,7 +51,7 @@ This is an example of a drivetrain and what the motor names (left front, left mi
 4. **Check and measure:** Run `examples/robotSetup` once. It checks that everything is plugged in and that the motor directions are right, and measures your track width and wheel size. Put the numbers it shows into simpleV5LibConfig.h. On a new robot, [First day on a real robot](docs/first-robot-checklist.md) goes through every check and tuning step in order, as a checklist.
 5. **Calibrate:** Call `calibrateInertial();` once before any movement (for example in `pre_auton`). It takes about 2 seconds, and the robot must stay still.
 6. **Tune:** Run `examples/tuning`: it lets you change kp, ki and kd from the controller and try them right away, with a live graph on the Brain screen. Copy the gains it shows into simpleV5LibConfig.h when you're done. The [tuning guide](docs/tuning.md) shows what each gain does on the Brain screen graph, step by step, and this [YouTube Video Tutorial](https://www.youtube.com/watch?v=WN3_vxA_D04) explains how to tune.
-7. **Code:** Start writing your autonomous routes! `examples/competitionTemplate` is a full competition program that uses everything, `examples/odometry` drives to field points, `examples/mechanisms` runs an arm and an intake, and the other examples show a single movement. Every movement stops on its own after a timeout (see `TURN_TIMEOUT_MS` and `FORWARD_TIMEOUT_MS`), so a stuck robot won't freeze your whole autonomous.
+7. **Code:** Start writing your autonomous routes! `examples/competitionTemplate` is a full competition program that uses everything, `examples/autonomous` is one routine written in field points for both starting spots ([Writing autonomous](docs/writing-autonomous.md) goes through it), `examples/odometry` drives to field points, `examples/mechanisms` runs an arm and an intake, and the other examples show a single movement. Every movement stops on its own after a timeout (see `TURN_TIMEOUT_MS` and `FORWARD_TIMEOUT_MS`), so a stuck robot won't freeze your whole autonomous.
 
 ## Quick Reference
 

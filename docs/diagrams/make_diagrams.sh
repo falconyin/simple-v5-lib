@@ -1,6 +1,6 @@
 #!/bin/sh
-# Draw the diagrams in docs/images (see diagrams.cpp) and print the numbers docs/odometry-and-paths.md
-# quotes. The path diagrams come from the simulator, so this needs the same C++17 compiler as
+# Draw the diagrams in docs/images (see diagrams.cpp) and print the numbers the guides in docs
+# quote. The path diagrams come from the simulator, so this needs the same C++17 compiler as
 # tests/run_tests.sh. Usage: docs/diagrams/make_diagrams.sh
 set -e
 cd "$(dirname "$0")/../.."

@@ -202,13 +202,16 @@ The real robot follows the ghost in two parts:
   brake: the power goes below 0.)
 - **The PID** only corrects the rest: its error is how far the robot is behind the ghost, and
   its D brakes when the robot drives faster than the ghost. If the feedforward were perfect, the
-  PID would have nothing to do.
+  PID would have nothing to do. It has no I while it follows the ghost: being a little behind
+  the ghost is an error that stays small the whole way, so the I (section 1: only for the last
+  bit near the target) would add up from the start and push the robot past the target.
 
-Once the ghost has stopped at the target, the ghost's speed is 0 and the PID's error is the
-distance to the target, exactly as without a profile: the PID finishes the movement, with the
-same tolerances. `measureTopSpeed()` (section 10) measures `DRIVE_TOP_SPEED` and
+Once the ghost has stopped at the target, the PID's error is the distance to the target, exactly
+as without a profile: the PID finishes the movement on its own, I and gentle ramp included, with
+the same tolerances. `measureTopSpeed()` (section 10) measures `DRIVE_TOP_SPEED` and
 `DRIVE_RESPONSE_MS`; a robot whose numbers are a bit off still ends at the target, only less
-smoothly. Without the profile, the robot starts with the gentle ramp from section 1 instead.
+smoothly. (A top speed of 0, from a measurement that failed, turns the profile off.) Without the
+profile, the robot starts with the gentle ramp from section 1 instead.
 
 The profile drives `PID_forward`, `PID_drive_to_point` and `PID_drive_to_pose` (section 8);
 movements that end at a heading (turns, swings, arcs) keep the PID alone. The settings live in
@@ -476,8 +479,10 @@ the way it was aiming. The robot can't drive sideways, so a tiny sideways miss i
 
 With a speed profile (section 3), the ghost drives the distance the point is ahead when the drive
 starts, and the PID's error in step 2 is how far that is from what the ghost still has to go.
-After the turn first, that is the whole way; a chained point the robot curves towards starts off
-to its side, so there the ghost has little to drive and the PID does most of it.
+After the turn first, that is the whole way. A chained point the robot curves towards starts off
+to its side, so the distance ahead is less than the way there, and a ghost would stop in the
+middle of the curve. So when the robot doesn't face the point within `POINT_TURN_FIRST_ANGLE`
+(20°) at the start, there is no ghost: the PID alone drives that one, as without a profile.
 
 ### Arriving at a heading: driving to a pose
 
@@ -641,7 +646,9 @@ lists what to do about what they find.)
   speed stops growing (less than 1% faster than 0.2 s before), then a gentle stop. The top speed
   is the average of the last 0.1 s. The response time is how long it took to get 63% of the way
   there: that is how a motor's response is usually counted, because after that long it gets 63% of
-  the way to *any* new speed. It counts with the wheel size from `measureWheelSize()` too.
+  the way to *any* new speed. It notes the time of each reading rather than counting 10 ms per
+  loop, since a loop takes a little longer than its wait. It counts with the wheel size from
+  `measureWheelSize()` too.
 
 ---
 

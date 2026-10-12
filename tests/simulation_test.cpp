@@ -745,6 +745,58 @@ static void testSpeedProfile() {
     PID_forward_async(48, 0.3, 0.2, FORWARD_TIMEOUT_MS, 50);
     d = watchDrive(500, 48);
     check("  acceleration 0: no profile", d.most_speeding_up > 150, d.most_speeding_up, 150);
+
+    // No I while following the ghost: the gap to it stays inside FORWARD_INTEGRAL_RANGE the whole
+    // way, so the I would add up from the start (with kI 0.5: 0.25 s slower and twice the overshoot,
+    // 0.28 in on the realistic runs). With the ghost moving, kI changes nothing; it only counts at
+    // the end, where the realistic runs' noisy readings make it differ a little.
+    MovementResult with_ki[2];
+    for (int i = 0; i < 2; i++) {
+        reset();
+        speedProfile.acceleration = 100;
+        forwardGains.ki = (i == 0) ? FORWARD_KI : 0.5;
+        PID_forward(48, 0.3, 0.2, FORWARD_TIMEOUT_MS, 50);
+        with_ki[i] = lastMovementResult();
+    }
+    forwardGains.ki = FORWARD_KI;
+    double ki_ms_off = sim::isRealistic() ? 120 : 20;
+    double ki_overshoot_off = sim::isRealistic() ? 0.08 : 0.02;
+    check("  no I while following the ghost: a big kI changes little",
+          fabs(with_ki[1].time_ms - with_ki[0].time_ms) < ki_ms_off
+          && with_ki[1].overshoot < with_ki[0].overshoot + ki_overshoot_off, with_ki[1].time_ms - with_ki[0].time_ms,
+          with_ki[1].overshoot - with_ki[0].overshoot);
+
+    // A chained point it curves to (here 45 degrees off to the side): the PID alone drives it, as
+    // without a profile. (A ghost for the distance ahead, less than the way there, stops early and
+    // the PID takes over without startRamp: out of the corner the power jumped by 26 instead of 13 in
+    // 10 ms. A 90 degree corner can't tell, CORNER_POWER drives it.) Only the perfect runs can tell:
+    // on the realistic ones the ghost reads the speed, which moves the noise on, and that alone
+    // changes the corner about as much as the ghost did (20 ms).
+    double corner_ms[2], corner_x[2];
+    for (int on = 0; on < 2; on++) {
+        reset();
+        speedProfile.acceleration = 0;
+        PID_drive_to_point_chain(0, 24, 4);
+        speedProfile.acceleration = on ? 150 : 0;
+        double corner_start = sim::t_ms;
+        PID_drive_to_point_chain(24, 48, 4);
+        corner_ms[on] = sim::t_ms - corner_start;
+        corner_x[on] = sim::x;
+        cancelMovement();
+    }
+    double corner_ms_off = sim::isRealistic() ? 50 : 5;
+    double corner_x_off = sim::isRealistic() ? 0.3 : 0.01;
+    check("  a chained point it curves to: as without a profile", fabs(corner_ms[1] - corner_ms[0]) < corner_ms_off
+          && fabs(corner_x[1] - corner_x[0]) < corner_x_off, corner_ms[1] - corner_ms[0], corner_x[1] - corner_x[0]);
+
+    // A top speed of 0 (a measureTopSpeed() that failed) can't turn a speed into a power: no
+    // profile, instead of a power that isn't a number (the robot drove on for 300 inches)
+    reset();
+    speedProfile.acceleration = 150;
+    speedProfile.top_speed = 0;
+    PID_forward(24, 0.3, 0.2);
+    check("  top speed 0: no profile, still gets there", fabs(sim::y - 24) < 0.3, sim::y, 24);
+    speedProfile.top_speed = DRIVE_TOP_SPEED;
     speedProfile.acceleration = DRIVE_ACCELERATION;
 }
 
@@ -1587,6 +1639,20 @@ static void testMeasureTopSpeed() {
     check("measureTopSpeed: top speed", fabs(top.top_speed - simTopSpeed()) < simTopSpeed() * 0.01, top.top_speed, simTopSpeed());
     check("  response time", fabs(top.response_ms - simResponseMs()) < 10, top.response_ms, simResponseMs());
     check("  shows them", showed("DRIVE_TOP_SPEED = ") && showed("DRIVE_RESPONSE_MS = "), 0, 0);
+    check("  levelled off: no 'still speeding up'", !showed("Still speeding up"), 0, 0);
+    // A robot that keeps getting faster (its wheels turning more freely as it goes) never levels off
+    reset();
+    static bool loosening;
+    loosening = true;
+    task loosen_task([]() -> int {
+        for (double t = 0; loosening; t += 0.01) { sim::gain[0] = sim::gain[1] = 0.2 + 0.5 * t; vexDelay(10); }
+        return 0;
+    });
+    measureTopSpeed();
+    loosening = false;
+    vexDelay(20);
+    sim::gain[0] = sim::gain[1] = 1;
+    check("  still speeding up after 1.5 s: says so", showed("Still speeding up"), 0, 0);
     reset();
     sim::gain[0] = sim::gain[1] = 0; // the wheels can't turn
     top = measureTopSpeed();

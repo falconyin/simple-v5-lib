@@ -77,7 +77,7 @@ extern PIDGains arcGains;     // PID_arc
 //   speedProfile.acceleration = 0;   // and from here on, don't
 struct SpeedProfileSettings {
     double acceleration; // inches/s per second, 0 = no speed profile (DRIVE_ACCELERATION)
-    double top_speed;    // inches/s at full power (DRIVE_TOP_SPEED)
+    double top_speed;    // inches/s at full power (DRIVE_TOP_SPEED), 0 = no speed profile either
     double response_ms;  // how long the drivetrain takes to follow a new power (DRIVE_RESPONSE_MS)
 };
 extern SpeedProfileSettings speedProfile;

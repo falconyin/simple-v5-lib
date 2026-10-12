@@ -383,19 +383,23 @@ TopSpeedResult measureTopSpeed() {
     report("give it 6 feet of room.");
     controllerMessage("Measuring...", "");
 
-    // The speed every 10 ms, from the moment full power starts
+    // The speed about every 10 ms, from the moment full power starts, and when it was read (a loop
+    // takes a little more than its 10 ms wait, and that adds up)
     double speeds[TOP_SPEED_SAMPLES];
+    double times[TOP_SPEED_SAMPLES];
     int count = 0;
+    bool leveled_off = false;
     double start_position = getPosition();
     double start_time = Brain.timer(timeUnits::msec);
     move(100, 100);
     while (count < TOP_SPEED_SAMPLES) {
         // (getMotorRate counts with the wheel size: corrected with measureWheelSize's result)
+        times[count] = Brain.timer(timeUnits::msec) - start_time;
         speeds[count] = getMotorRate() * drive_wheel_scale;
         count++;
         // Done when the speed has stopped growing: less than 1% faster than 200 ms ago
-        double time = Brain.timer(timeUnits::msec) - start_time;
-        if (time >= TOP_SPEED_MIN_MS && count > 20 && speeds[count - 1] < speeds[count - 21] * 1.01) {
+        if (times[count - 1] >= TOP_SPEED_MIN_MS && count > 20 && speeds[count - 1] < speeds[count - 21] * 1.01) {
+            leveled_off = true;
             break;
         }
         vexDelay(10);
@@ -433,7 +437,7 @@ TopSpeedResult measureTopSpeed() {
     for (int i = 1; i < count; i++) {
         if (speeds[i] >= 0.63 * top) {
             double part = (0.63 * top - speeds[i - 1]) / (speeds[i] - speeds[i - 1]);
-            response = (i - 1 + part) * 10;
+            response = times[i - 1] + part * (times[i] - times[i - 1]);
             break;
         }
     }
@@ -441,7 +445,7 @@ TopSpeedResult measureTopSpeed() {
     result.response_ms = response;
 
     report("It drove %.0f inches.", driven);
-    if (count == TOP_SPEED_SAMPLES) {
+    if (!leveled_off) {
         report("Still speeding up after %.1f s: top speed is", TOP_SPEED_MAX_MS / 1000);
         report("a bit more than this.");
     }

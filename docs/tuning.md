@@ -335,30 +335,31 @@ about as fast here, but brakes harder: as hard as traction control allows.
 How it does on the simulator, with the numbers `measureTopSpeed()` measured there, 10 runs each
 (ends: + = stopped short, - = went past):
 
-| | Perfect simulator (69.8 in/s, 99 ms) | Realistic simulator (64.1 in/s, 119 ms) |
+| | Perfect simulator (69.8 in/s, 99 ms) | Realistic simulator (64.1 in/s, 118 ms) |
 | --- | --- | --- |
 | `PID_forward(6)`, no profile | 0.66 s, overshoot 0.07, ends -0.07 | 0.96 to 1.05 s, overshoot 0.11 to 0.12, ends 0.00 to 0.01 |
-| `PID_forward(6)`, acceleration 150 | 0.70 s, overshoot 0.05, ends -0.05 | 0.76 to 1.07 s, overshoot 0.07, ends -0.07 to 0.00 |
-| `PID_forward(24)`, no profile | 1.28 s, overshoot 0.15, ends 0.01 | 1.31 to 1.35 s, overshoot 0.26, ends 0.02 |
-| `PID_forward(24)`, acceleration 150 | 1.29 s, overshoot 0.13, ends 0.00 | 0.97 to 1.20 s, overshoot 0.04 to 0.05, ends -0.05 to -0.01 |
-| `PID_forward(48)`, no profile | 1.62 s, overshoot 0.16, ends 0.01 | 1.66 to 1.70 s, overshoot 0.32, ends 0.02 to 0.03 |
-| `PID_forward(48)`, acceleration 150 | 1.62 s, overshoot 0.15, ends 0.01 | 1.39 to 1.47 s, overshoot 0.09 to 0.10, ends 0.00 to 0.01 |
-| `PID_forward(72)`, no profile | 1.97 s, overshoot 0.16, ends 0.01 | 2.04 to 2.08 s, overshoot 0.32, ends 0.02 |
-| `PID_forward(72)`, acceleration 150 | 1.95 s, overshoot 0.16, ends 0.01 | 1.80 to 1.87 s, overshoot 0.11 to 0.12, ends 0.01 |
+| `PID_forward(6)`, acceleration 150 | 0.72 s, overshoot 0.03, ends -0.03 | 0.80 to 0.85 s, overshoot 0.03 to 0.04, ends -0.04 to -0.03 |
+| `PID_forward(24)`, no profile | 1.28 s, overshoot 0.15, ends 0.01 | 1.29 to 1.33 s, overshoot 0.26, ends 0.02 |
+| `PID_forward(24)`, acceleration 150 | 1.26 s, overshoot 0.09, ends 0.00 | 1.06 to 1.17 s, overshoot 0.00 to 0.01, ends -0.01 to 0.00 |
+| `PID_forward(48)`, no profile | 1.62 s, overshoot 0.16, ends 0.01 | 1.65 to 1.81 s, overshoot 0.32, ends 0.02 to 0.03 |
+| `PID_forward(48)`, acceleration 150 | 1.62 s, overshoot 0.12, ends 0.00 | 1.21 to 1.25 s, overshoot 0.00, ends 0.02 to 0.03 |
+| `PID_forward(72)`, no profile | 1.97 s, overshoot 0.16, ends 0.01 | 2.04 to 2.08 s, overshoot 0.32, ends 0.02 to 0.03 |
+| `PID_forward(72)`, acceleration 150 | 1.95 s, overshoot 0.11, ends 0.00 | 1.76 to 1.89 s, overshoot 0.00, ends 0.00 to 0.01 |
 
 On the perfect simulator it makes little difference: its wheels react at once and never slip, so
-the PID alone already does well. The realistic one has readings and commands that arrive 10 ms
-late, a drained battery and wheels that can slip: there the PID alone goes about 0.3 inches past
-the target, and with the profile about 0.1, and longer drives take 0.2 to 0.3 s less.
+the PID alone already does well (the profile goes a little less past the target). The realistic
+one has readings and commands that arrive 10 ms late, a drained battery and wheels that can slip:
+there the PID alone goes about 0.3 inches past the target, and with the profile hardly at all,
+and drives take 0.15 to 0.5 s less.
 
 A `DRIVE_RESPONSE_MS` that isn't what `measureTopSpeed()` says (acceleration 150):
 
 | | Perfect simulator | Realistic simulator |
 | --- | --- | --- |
-| `PID_forward(24)`, 30% too low (69 ms, 83 ms) | 1.28 s, overshoot 0.58, ends 0.04 | 1.25 to 1.56 s, overshoot 0.66 to 0.67, ends 0.00 to 0.06 |
-| `PID_forward(48)`, 30% too low | 1.62 s, overshoot 0.66, ends 0.05 | 1.61 to 2.01 s, overshoot 0.79 to 0.80, ends -0.01 to 0.07 |
-| `PID_forward(24)`, 30% too high (128 ms, 154 ms) | 1.13 s, overshoot 0.07, ends -0.07 | 1.53 to 1.62 s, overshoot 0.12, ends 0.00 to 0.01 |
-| `PID_forward(48)`, 30% too high | 1.45 s, overshoot 0.08, ends -0.08 | 1.91 to 1.96 s, overshoot 0.13, ends 0.01 |
+| `PID_forward(24)`, 30% too low (69 ms, 83 ms) | 1.30 s, overshoot 0.55, ends 0.03 | 1.26 to 1.38 s, overshoot 0.61 to 0.62, ends 0.03 to 0.04 |
+| `PID_forward(48)`, 30% too low | 1.65 s, overshoot 0.63, ends 0.03 | 1.64 to 1.94 s, overshoot 0.68, ends 0.00 to 0.05 |
+| `PID_forward(24)`, 30% too high (128 ms, 154 ms) | 1.20 s, overshoot 0.03, ends -0.03 | 1.25 to 1.62 s, overshoot 0.06, ends -0.06 to 0.00 |
+| `PID_forward(48)`, 30% too high | 1.54 s, overshoot 0.03, ends -0.03 | 1.64 to 1.95 s, overshoot 0.05 to 0.06, ends -0.05 to 0.00 |
 
 Too low goes past the target; too high brakes early and takes longer to creep in (on the realistic
 simulator; on the perfect one a bit more than measured happened to be faster still). Either way the
@@ -370,7 +371,7 @@ A chained movement's plan stops `exit_range` past its target, so the robot is st
 the next one takes over, and the next one's plan starts at the speed the robot has. A drive to a
 point plans the distance ahead of the robot when it starts driving: after turning towards the
 point first, that is all of it, but a chained point that curves around a corner starts with the
-point off to the side, so the PID alone drives most of that one.
+point off to the side (more than 20°), so the PID alone drives that one, as without a profile.
 
 ## Making the pictures
 

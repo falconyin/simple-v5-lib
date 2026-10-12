@@ -195,12 +195,18 @@ on, so with it off every run is byte-identical to the PID alone, realistic noise
 up at the acceleration, cruises at `max_speed` × top speed and slows down by `sqrt(2·a·distance left)`. The
 loop gives `Ghost::power()` (feedforward for the ghost's speed `response_ms` ahead, extrapolated below 0 when
 the ghost stops within that time, which is what keeps long drives from overshooting) plus the PID on the
-distance to the ghost, its D on the speed difference, instead of `startRamp`. When the ghost stops the PID
-alone finishes. A chained ghost stops at the PID's target (`exit_range` past), and a new ghost starts at the
+distance to the ghost, its D on the speed difference, *without* its I, instead of `startRamp` (`followGhost`,
+shared by both loops; the gap to the ghost stays inside the integral range all the way, so an I there added
+up from the start: twice the overshoot with kI 0.5). Once the ghost stops (`Ghost::moving()`) the loop falls
+back to the plain PID + `startRamp` branch. `driveToPoint` makes no ghost when the robot doesn't face its aim
+within `POINT_TURN_FIRST_ANGLE` (a chained curve: the distance ahead is less than the way there, the ghost
+stopped mid-curve and the power jumped coming out; a 90° corner hides this, `CORNER_POWER` drives it, so
+its test uses a 45° one). `top_speed` 0 (a failed `measureTopSpeed`) turns the profile off: power() would be
+NaN. A chained ghost stops at the PID's target (`exit_range` past), and a new ghost starts at the
 robot's speed. `speedProfile` (`SpeedProfileSettings`: acceleration, top speed, response time) is snapshotted
-into the request like the gains. `measureTopSpeed()` measures the other two (63% rise time, so it includes
-the realistic simulator's 20 ms of delays: 119 ms there vs 99 perfect). Measured on the simulator it helps
-mostly on the realistic runs (less overshoot, shorter long drives); the robot brakes up to ~1.4× (realistic
+into the request like the gains. `measureTopSpeed()` measures the other two (63% rise time from each sample's
+timer reading, so it includes the realistic simulator's 20 ms of delays: 118 ms there vs 99 perfect). Measured
+on the simulator it helps mostly on the realistic runs (no overshoot to speak of, drives 0.15–0.5 s shorter); the robot brakes up to ~1.4× (realistic
 1.8×) the acceleration at the very end, since the look-ahead starts braking early and gently; tests allow it.
 The gain-semantic tests (all gains 0 doesn't move, kD 0 overshoots more) would fail with the profile on.
 

@@ -189,6 +189,21 @@ last power (`side_power`), which `lastDrivePower()` averages for `rampFrom`/`slo
 limited too, a movement can no longer rely on an instant hard correction: the pose aim blend above exists
 for that reason, and a new steering rule should be checked on the perfect *and* realistic runs.
 
+**The speed profile** (optional, `DRIVE_ACCELERATION` is 0 by default) lives in `driveForward` and
+`driveToPoint` only: a `Ghost` (made by `makeGhost`, which reads the robot's speed *only* when the profile is
+on, so with it off every run is byte-identical to the PID alone, realistic noise sequence included) speeds
+up at the acceleration, cruises at `max_speed` × top speed and slows down by `sqrt(2·a·distance left)`. The
+loop gives `Ghost::power()` (feedforward for the ghost's speed `response_ms` ahead, extrapolated below 0 when
+the ghost stops within that time, which is what keeps long drives from overshooting) plus the PID on the
+distance to the ghost, its D on the speed difference, instead of `startRamp`. When the ghost stops the PID
+alone finishes. A chained ghost stops at the PID's target (`exit_range` past), and a new ghost starts at the
+robot's speed. `speedProfile` (`SpeedProfileSettings`: acceleration, top speed, response time) is snapshotted
+into the request like the gains. `measureTopSpeed()` measures the other two (63% rise time, so it includes
+the realistic simulator's 20 ms of delays: 119 ms there vs 99 perfect). Measured on the simulator it helps
+mostly on the realistic runs (less overshoot, shorter long drives); the robot brakes up to ~1.4× (realistic
+1.8×) the acceleration at the very end, since the look-ahead starts braking early and gently; tests allow it.
+The gain-semantic tests (all gains 0 doesn't move, kD 0 overshoots more) would fail with the profile on.
+
 **Chaining** is why so much state is global: a chained movement returns with the robot still moving,
 so the next one must know the heading that was being aimed for (`chain_heading`), whether the previous
 was a forward move and where its target was (`chain_was_forward`, `chain_forward_end`, so the handed-over

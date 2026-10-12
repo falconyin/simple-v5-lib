@@ -725,6 +725,118 @@ static void tuningNumbers() {
     for (auto &e : rest) printExample(Picture::fmt("kP %g, kI %g, kD %g", e.kp, e.ki, e.kd), e, pictures);
 }
 
+// ---------- The speed profile in docs/tuning.md, section 12 ----------
+
+// One PID_forward, its true speed every 10 ms (in/s)
+struct SpeedTrace {
+    std::vector<double> speeds;
+    MovementResult result;
+};
+static SpeedTrace driveAndWatch(double inches, int start_ms) {
+    SpeedTrace trace;
+    startAtOrigin(start_ms);
+    recording = false;
+    PID_forward_async(inches, 0.3, 0.2);
+    while (isMoving()) {
+        trace.speeds.push_back((sim::v[0] + sim::v[1]) / 2);
+        vexDelay(10);
+    }
+    trace.result = lastMovementResult();
+    return trace;
+}
+
+// The table rows: time, overshoot and end error over STARTS runs, without and with the profile
+static void profileRow(const char *label, double inches, double acceleration) {
+    Range time, overshoot, error;
+    for (int start = 0; start < STARTS; start++) {
+        speedProfile.acceleration = acceleration;
+        MovementResult r = driveAndWatch(inches, start).result;
+        time.add(r.time_ms / 1000);
+        overshoot.add(r.overshoot);
+        error.add(r.error);
+    }
+    speedProfile.acceleration = DRIVE_ACCELERATION;
+    printf("  %-35s %s s, overshoot %s, ends %s\n", label, time.show("%.2f").c_str(), overshoot.show("%.2f").c_str(),
+           error.show("%.2f").c_str());
+}
+
+static void speedProfileNumbers(const char *robot) {
+    // What a user does first: measureTopSpeed, and its numbers into the config
+    TopSpeedResult measured = measureTopSpeed();
+    speedProfile.top_speed = measured.top_speed;
+    speedProfile.response_ms = measured.response_ms;
+    printf("\ndocs/tuning.md section 12, the %s simulator: measureTopSpeed says %.1f in/s, %.0f ms\n", robot,
+           measured.top_speed, measured.response_ms);
+    printf("(ends: + = stopped short of the target, - = went past it)\n");
+    for (double inches : {6.0, 24.0, 48.0, 72.0}) {
+        profileRow(Picture::fmt("PID_forward(%g), no profile", inches).c_str(), inches, 0);
+        profileRow(Picture::fmt("PID_forward(%g), acceleration 150", inches).c_str(), inches, 150);
+    }
+    printf("DRIVE_RESPONSE_MS not what measureTopSpeed says, acceleration 150:\n");
+    for (double factor : {0.7, 1.3}) {
+        speedProfile.response_ms = measured.response_ms * factor;
+        for (double inches : {24.0, 48.0})
+            profileRow(Picture::fmt("PID_forward(%g), %.0f ms", inches, speedProfile.response_ms).c_str(), inches, 150);
+    }
+    speedProfile.top_speed = DRIVE_TOP_SPEED;
+    speedProfile.response_ms = DRIVE_RESPONSE_MS;
+}
+
+// The picture: the robot's speed during PID_forward(48), without and with the profile (and the plan)
+static void speedProfilePicture(const std::string &folder) {
+    TopSpeedResult measured = measureTopSpeed();
+    speedProfile.top_speed = measured.top_speed;
+    speedProfile.response_ms = measured.response_ms;
+    SpeedTrace pid_only = driveAndWatch(48, 0);
+    speedProfile.acceleration = 150;
+    SpeedTrace profiled = driveAndWatch(48, 0);
+    speedProfile = {DRIVE_ACCELERATION, DRIVE_TOP_SPEED, DRIVE_RESPONSE_MS};
+
+    // x: time in hundredths of a second (one per sample), y: inches/s; 2 s and 80 in/s
+    Picture p{0, 0, 200, 80, 2.8};
+    p.left = 50; p.bottom = 46; p.top = 56;
+    for (double v = 0; v <= 80; v += 20) {
+        p.line(0, v, 200, v, v == 0 ? AXIS : GRID, 1);
+        p.text(0, v, Picture::fmt("%g", v), "end", INK_2, -6, 4, 11);
+    }
+    for (double s = 0; s <= 2; s += 0.5) {
+        p.line(s * 100, 0, s * 100, -1.5, AXIS, 1);
+        p.text(s * 100, 0, Picture::fmt("%g s", s), "middle", INK_2, 0, 18, 11);
+    }
+    p.text(0, 80, "speed, inches/s", "start", INK_2, -44, -10, 11);
+    // The plan: up at 150 to the top speed, then down at 150 so it stops at 48
+    double a = 150, top = measured.top_speed, up = top / a, cruise = (48 - top * up) / top;
+    std::vector<std::pair<double, double>> plan = {{0, 0}, {up * 100, top}, {(up + cruise) * 100, top}, {(2 * up + cruise) * 100, 0}};
+    std::string d;
+    for (auto &pt : plan) d += Picture::fmt("%s%.1f %.1f ", d.empty() ? "M" : "L", p.X(pt.first), p.Y(pt.second));
+    p.add(Picture::fmt("<path d='%s' fill='none' stroke='%s' stroke-width='1.5' stroke-dasharray='5 4'/>", d.c_str(), INK_2));
+    auto trace = [&](const SpeedTrace &t, const char *color) {
+        std::vector<std::pair<double, double>> points;
+        for (size_t i = 0; i < t.speeds.size(); i++) points.push_back({(double)i, t.speeds[i]});
+        p.path(points, color);
+    };
+    trace(pid_only, BLUE);
+    trace(profiled, ORANGE);
+    p.text(0, 80, Picture::fmt("<tspan fill='%s' font-weight='600'>no profile</tspan>: %s", BLUE,
+                               controllerLine(pid_only.result).c_str()), "start", INK, 0, -32, 12);
+    p.text(100, 80, Picture::fmt("<tspan fill='%s' font-weight='600'>acceleration 150</tspan>: %s", ORANGE,
+                                 controllerLine(profiled.result).c_str()), "start", INK, 0, -32, 12);
+    p.text((up + cruise / 2) * 100, top, "the plan (dashed)", "middle", INK_2, 0, -8, 11);
+    p.save(folder, "speed-profile.svg", "The robot's speed during PID_forward(48): without a speed profile, and with acceleration 150");
+}
+
+static void speedProfileGuide(const std::string &folder) {
+    speedProfilePicture(folder);
+    speedProfileNumbers("perfect");
+    // The realistic simulator (late and noisy readings, a drained battery, wheels that slip), like
+    // tests/run_tests.sh's second runs: the profile was made for what it adds
+    sim::realistic(true);
+    sim::forgetReadings();
+    speedProfileNumbers("realistic");
+    sim::realistic(false);
+    sim::forgetReadings();
+}
+
 int main(int argc, char **argv) {
     std::string folder = argc > 1 ? argv[1] : "docs/images";
     calibrateInertial();
@@ -739,6 +851,7 @@ int main(int argc, char **argv) {
     numbers();
     tuningNumbers();
     autonomousExample(folder);
+    speedProfileGuide(folder);
     fflush(stdout);
     _exit(0); // the library's background tasks never end
 }

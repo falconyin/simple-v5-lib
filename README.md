@@ -27,7 +27,7 @@ The guides in `docs`:
 
 ## What's Included
 
-* **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest`, `PID_swing` and `PID_arc` (drive along a curve), with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight, and traction control (`DRIVE_SLIP_LIMIT`) keeps the wheels from spinning or skidding on the tiles, which would throw the distance measurements off.
+* **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest`, `PID_swing` and `PID_arc` (drive along a curve), with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight, and traction control (`DRIVE_SLIP_LIMIT`) keeps the wheels from spinning or skidding on the tiles, which would throw the distance measurements off. An optional speed profile (`DRIVE_ACCELERATION`) plans how fast drives speed up and brake ([Tuning the PID, section 12](docs/tuning.md#12-optional-a-speed-profile)).
 * **Odometry:** the robot keeps track of where it is on the field (x, y in inches), and `PID_drive_to_point` / `PID_turn_to_point` drive to field points. `PID_drive_to_pose` gets to a point *and* arrives facing a heading, in one curve. Works with just the drive motors and inertial sensor; tracking wheels are optional. Correct the position against a wall, by touching it (`setX` / `setY`) or with a distance sensor (`resetXFromWall` / `resetYFromWall`). [Odometry and paths](docs/odometry-and-paths.md) shows how to use all of it, with pictures.
 * **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes. `PID_drive_to_point_chain` turns a list of field points into one smooth path.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
@@ -35,7 +35,7 @@ The guides in `docs`:
 * **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal. The [tuning guide](docs/tuning.md) shows what the graph looks like for each kind of mistake, and which gain fixes it.
 * **Tuning from the controller:** `tuneWithController()` changes kP, kI and kD with the controller buttons and tries them right away, no re-downloading. The gains are saved on the SD card, and `loadGainsFromSDCard()` brings them back in the next run.
 * **SD card logging:** `logToSDCard(true)` saves every movement's data in a CSV file, to look at after a match.
-* **Robot setup checks:** `checkDevices()` finds unplugged or overheating devices, `testDrivetrain()` finds motors set to the wrong direction, and `measureTrackWidth()` / `measureWheelSize()` measure your robot for `simpleV5LibConfig.h`.
+* **Robot setup checks:** `checkDevices()` finds unplugged or overheating devices, `testDrivetrain()` finds motors set to the wrong direction, and `measureTrackWidth()` / `measureWheelSize()` / `measureTopSpeed()` measure your robot for `simpleV5LibConfig.h`.
 * **Driver control:** `tankDrive()` and `arcadeDrive()`, with a joystick deadband and curve.
 * **Autonomous selector:** pick your routine on the Brain screen or the controller before the match. [Writing autonomous](docs/writing-autonomous.md) shows how to write a routine once and mirror it for the other starting spot.
 * **A reusable `PIDController`:** the same one the drivetrain (and `Arm`) uses. Use it for your own mechanisms too.
@@ -115,12 +115,14 @@ tuneWithController();  // change kP/kI/kD with the controller buttons and try th
 loadGainsFromSDCard(); // at the start of your program: use the gains saved on the SD card
 logToSDCard(true);     // every movement's data into pidlog1.csv, pidlog2.csv, ... on the SD card
 turnGains.kp = 3.5;    // or change the gains in code (also forwardGains, swingGains, arcGains)
+speedProfile.acceleration = 150;  // plan the speed of the drives after this (0 = off, DRIVE_ACCELERATION)
 
 // Robot setup (see examples/robotSetup)
 checkDevices();        // everything plugged in? motors not too hot? (doesn't move)
 testDrivetrain();      // motor directions, left/right, gyro sign (the robot turns a little)
 measureWheelSize(48);  // push the robot 48 inches by hand, shows WHEEL_DIAMETER_INCH
 measureTrackWidth();   // spins 3 times, shows TRACK_WIDTH_INCH and tracking wheel offsets (after measureWheelSize)
+measureTopSpeed();     // full power forward for a second, shows DRIVE_TOP_SPEED and DRIVE_RESPONSE_MS (speed profile)
 
 // Driver control (inside the while loop in usercontrol)
 arcadeDrive();   // or tankDrive();

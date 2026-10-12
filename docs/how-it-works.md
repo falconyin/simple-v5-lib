@@ -223,6 +223,27 @@ other one sees the new value. Starting a movement "claims" the drivetrain in one
 (`compare_exchange_weak` in `startMotion`), so two tasks can never start a movement at the same
 time; the second one waits until the first movement is done.
 
+### When the competition mode changes
+
+In a match, VEXcode's `competition` runs your `autonomous()` and `usercontrol()` in tasks of their
+own. When the mode changes (autonomous, then disabled, then driver control), it stops the task
+that ran the old mode's function, and only that one. The motion task, odometry and the
+Arm/Intake task (section 11) are other tasks, so they keep running. (The VEX documentation
+doesn't say this; it comes from reading the VEX SDK's own code, version V5_20240802.)
+
+So when autonomous ends in the middle of a `PID_forward`, the movement goes on in the motion task.
+While the robot is disabled its motors can't move, but when driver control starts, the movement
+is still there. That's why `usercontrol()` starts with `cancelMovement()` (`arcadeDrive()` and
+`tankDrive()` call it too). An Arm or Intake also keeps the last command autonomous gave it, so
+give each one a command at the start of driver control too, `intake.stop()` for example.
+
+A program can set `Competition.bStopAllTasksBetweenModes = true` (it is `false` unless you set
+it). Then the change of mode stops *every* task except `main()`, the library's too. The library
+starts them again: every function that needs one of its tasks first checks that the task still
+runs, and starts it if not (`startTaskOnce` in `src/simpleV5lib.cpp`). A movement whose task was
+stopped can never finish, so the robot stops and the next movement can start. Odometry counts on
+from wherever the robot is then (it can't drive while it is disabled anyway).
+
 ---
 
 ## 6. Chained movements
@@ -567,7 +588,8 @@ Code: `src/mechanisms.cpp`. Example: `examples/mechanisms`.
 An `Arm` or `Intake` is made outside any function, next to its motors. That registers it with
 the library, but doesn't start anything yet: it is too early to start a task before `main()`
 runs. The first command (`moveTo`, `spin`, ...) starts one background task, which looks after
-every Arm and Intake every 10 ms.
+every Arm and Intake every 10 ms. Every later command checks that the task still runs, and starts
+it again if a change of competition mode stopped it (section 5).
 
 Your code never moves the motors itself. `moveTo` only writes down the new target and adds one
 to a counter (`request`). The task sees that the counter changed and starts the new command.

@@ -58,6 +58,7 @@ messages are quoted here the way the library prints them.
 | Works at home, not on the competition field | Different tiles (grip), a different battery, a different starting spot | Practice on field tiles; check `DRIVE_SLIP_LIMIT` there ([checklist, step 8](first-robot-checklist.md#8-traction-control)) |
 | The robot keeps moving for a moment when driver control starts | A movement from autonomous is still running | `cancelMovement()` at the start of `usercontrol()` (`tankDrive` / `arcadeDrive` stop it too, as soon as the loop calls them) |
 | The intake keeps spinning when driver control starts | Mechanisms keep doing their last command until they get a new one (an arm holding its position is what you want) | Give them one at the start of `usercontrol()` (`intake.stop()`), or in the driving loop |
+| A task of your own, started in autonomous, still runs in driver control (or one stops when the mode changes) | A change of mode only stops the task running `autonomous()` itself; with `Competition.bStopAllTasksBetweenModes = true`, every task except `main()` | Stop your task yourself at the start of `usercontrol()` (`myTask.stop()`). The library's own tasks start again by themselves either way ([How it works, section 5](how-it-works.md#when-the-competition-mode-changes)) |
 | The Left / Right buttons change the routine during driver control | The selector is still running | `stopAutonSelector()` at the start of `usercontrol()` |
 
 ## 4. Movements

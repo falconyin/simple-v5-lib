@@ -82,7 +82,12 @@ The library only ever includes `"vex.h"`, which it never ships. Both builds supp
   independent mechanism motors on ports 7–21 (a gravity `mech_load`, hold mode that pushes back,
   `mech_jammed`, current draw from the power-vs-speed gap; ports 1–6 are always the drivetrain),
   simulated time (tests run far faster than real time), and cooperative "tasks" that are real threads
-  but only switch inside `vexDelay`/`wait`. It can inject setup faults (`sim::unplugged`, `wrong_direction`, `sides_swapped`, `gyro_rate_flipped`, `wheel_diam`) which is
+  but only switch inside `vexDelay`/`wait`; each remembers the function it was started with, so
+  `task::_index` and stopping a task by its function work. Its `competition` copies what the real SDK
+  (V5_20240802, decoded from `libv5rt.a`, not documented by VEX) does on a mode change: stop the task running
+  the other mode's function (`bStopTasksBetweenModes`, on by default), or with `bStopAllTasksBetweenModes`
+  every task except main; `test_auton`/`test_driver`/`test_disable` switch modes. A stopped task stays stuck
+  in the `vexDelay` it was in (it doesn't model motors turning off while disabled). It can inject setup faults (`sim::unplugged`, `wrong_direction`, `sides_swapped`, `gyro_rate_flipped`, `wheel_diam`) which is
   how `src/robotSetup.cpp` is tested, and disturbances (`gain` for a weak side, `bump`, `push`, `obstacle`,
   `heat`). Its real-world layer (`sim::real`: delays, noise, drift, battery, grip) is off unless
   `-DSIM_REALISTIC`; `sim::real::friction` (a power deadband on the drive) is not part of it and only
@@ -120,8 +125,9 @@ drive motors, `leftDrive`/`rightDrive` motor groups, `Inertial`). The library ow
 
 - Every movement is a `MotionRequest` struct (type, target, tolerances, timeout, max speed, radius,
   `exit_range`, target point, flags, plus a *snapshot of all four gain sets*).
-- `startMotion()` claims the drivetrain with a `compare_exchange` spin on `motion_running`, lazily
-  creates the single `motionLoop` task, and publishes the request via `motion_requested`.
+- `startMotion()` claims the drivetrain with a `compare_exchange` spin on `motion_running` and
+  publishes the request via `motion_requested`; the single `motionLoop` task is started by
+  `keepMotionTaskRunning()` (see "Background tasks" below).
 - `motionLoop()` picks it up, dispatches through `runMotion()`, and clears `motion_running`.
 - The public API is three thin layers over this: `PID_x_async` = `startMotion`; `PID_x` = async +
   `waitUntilDone`; `PID_x_chain` = the same with a non-zero `exit_range`. The two `*_to_point*` turns
@@ -130,6 +136,19 @@ drive motors, `leftDrive`/`rightDrive` motor groups, `Inertial`). The library ow
 - Cross-task state is all `std::atomic` (`motion_running`, `motion_requested`, `cancel_requested`,
   `motion_progress`, and the `chain_*` values). `last_result` is plain, safe only because it is written
   before `motion_running` goes false and read after waiting on it.
+
+**Background tasks** (motion, odometry, mechanisms, auton selector) are all started through
+`startTaskOnce(fn)` in `src/simpleV5lib.cpp`, which asks the SDK whether a task runs `fn` (`task::_index`,
+protected, reached through a derived `TaskFinder`) and starts one if not. They are started lazily, and every
+function that relies on one calls it again first, because `Competition.bStopAllTasksBetweenModes = true`
+makes the SDK stop every task except main on a mode change: the motion task's callers (`startMotion`,
+`waitUntilDone`, `waitUntilTraveled`, `isMoving`, `cancelMovement`) go through `keepMotionTaskRunning()`,
+which also stops the robot and frees `motion_running` when the task had to be restarted (its movement can
+never finish); odometry through `keepOdometryRunning()` (getters and `cancelMovement`, which driver control
+calls every loop); Arm/Intake commands *before* their repeated-command check (a driver loop repeats
+autonomous's last command). A new background task, or a new function that waits on one, must do the same;
+`testCompetitionModes` plays a match with and without that switch. The default
+(`bStopTasksBetweenModes`) only stops the task running the user's `autonomous`/`usercontrol` function.
 
 Only three inner loops exist. `driveForward()` handles `PID_forward` (and heading-hold straightness via
 `FORWARD_HEADING_KP`), `driveToPoint()` handles `PID_drive_to_point` *and* `PID_drive_to_pose` (the

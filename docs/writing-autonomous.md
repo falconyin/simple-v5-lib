@@ -34,7 +34,13 @@ A competition program has three parts, and the field controller decides when eac
 | --- | --- | --- |
 | `pre_auton()` | Once, when the program starts, before the match | `calibrateInertial()` (the robot must stay still for about 2 seconds), `loadGainsFromSDCard()`, `checkDevices()`, the arm's `resetPosition`, then one `addAuton` per routine and `startAutonSelector()` |
 | `autonomous()` | The autonomous period | Only `runSelectedAuton()`: it runs the routine picked on the Brain screen or with the controller's Left / Right buttons |
-| `usercontrol()` | Driver control | First `stopAutonSelector()` (frees the Left / Right buttons) and `cancelMovement()` (stops a movement autonomous left running), then the driving loop |
+| `usercontrol()` | Driver control | First `stopAutonSelector()` (frees the Left / Right buttons), `cancelMovement()` (stops a movement autonomous left running) and a command for each Arm and Intake (they keep the last command autonomous gave them: `intake.stop()`), then the driving loop |
+
+When autonomous ends, VEXcode stops the task running `autonomous()`, often in the middle of a
+movement, but the library's own tasks keep running: that's why `usercontrol()` must cancel the
+movement. (If your program sets `Competition.bStopAllTasksBetweenModes = true`, the library's tasks
+are stopped too, and start again by themselves. [How it works, section 5](how-it-works.md#when-the-competition-mode-changes)
+has the details.)
 
 Each routine is a function of its own, `void leftSpot() { ... }`, added to the selector with
 `addAuton("Left spot", leftSpot)`. The first one added is selected until someone picks another.

@@ -272,7 +272,8 @@ struct MovementResult {
 MovementResult lastMovementResult();
 
 // Stop the current movement right away, or a chained one that is still rolling
-// (also called by tankDrive / arcadeDrive)
+// (also called by tankDrive / arcadeDrive). Call it at the start of usercontrol(): when
+// autonomous ends in the middle of a movement, the movement keeps running into driver control.
 void cancelMovement();
 
 // ============================================================================

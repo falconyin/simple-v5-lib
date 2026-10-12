@@ -413,9 +413,18 @@ there at `POINT_AIM_DISTANCE`. A sudden switch can mean a sudden hard turn, whic
 wheels (or, with traction control holding it back, swing wide of the target). Driving backwards,
 the carrot hangs on the other side of the target, since the robot arrives there back first.
 
+One more rule keeps the carrot from getting too close to the robot. Once the robot is on the
+line, the carrot is only `(1 - lead)` times the distance still to go ahead of it. With a big lead
+that is so close that a small sideways miss swings the aim around: the robot crosses the line at
+a steep angle, weaves, and ends inches beside the target (and with `lead` 1 the carrot sits right
+on the robot, so it stops there). So near the line the carrot moves forward along it, until it is
+twice `POINT_AIM_DISTANCE` away from the robot, but never past the target. It's like a driver
+looking down the road instead of at the front bumper: the robot settles onto the line before the
+aim slides over to the heading, so it also ends closer with a normal lead.
+
 `lead` sets the shape: bigger = a wider curve that lines up with the heading earlier, smaller =
-a straighter drive that has to turn harder at the end. 0 drives straight at the point and turns
-to the heading there. A pose the robot can't curve into (one that points back at it) comes out
+a straighter drive that has to turn harder at the end. Anything from 0 to 1 works. 0 drives
+straight at the point and turns to the heading there. A pose the robot can't curve into (one that points back at it) comes out
 the same way: drive there, then turn around on the spot.
 
 A curve like this used to skid a little, more than driving straight, and end an inch or two

@@ -489,6 +489,22 @@ static void testDriveToPose() {
     // (the last part of the curve is slow: it is lining up with the heading while the point is already close)
     check("pose chain hands over still rolling, near 90", pose_handover_speed > 10 && fabs(pose_handover_heading - 90) < 30, pose_handover_speed, pose_handover_heading);
     check("  then drives on to (48, 24)", hypot(sim::x - 48, sim::y - 24) < pose_tolerance, sim::x, sim::y);
+    // Any lead from 0 to 1 gets there. Without the carrot's look-ahead, a big lead put the carrot almost
+    // on top of the robot once it reached the line: it weaved and ended inches beside the target
+    // (lead 0.8: 3 to 5), and lead 1 stopped wherever the robot first reached the line.
+    struct { double x, y, heading, lead; bool backwards; } poses[] = {
+        {24, 36, 90, 0.3, false}, {24, 36, 90, 0.8, false}, {24, 36, 90, 1, false},
+        {0, 48, 90, POSE_LEAD, false}, {0, 48, 90, 1, false}, {-24, -24, 90, 1, true},
+    };
+    for (auto &p : poses) {
+        reset();
+        PID_drive_to_pose(p.x, p.y, p.heading, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, p.backwards, p.lead); settle();
+        char name[80];
+        snprintf(name, sizeof(name), "drive to pose (%g, %g, %g%s), lead %g: gets there, facing %g",
+                 p.x, p.y, p.heading, p.backwards ? " backwards" : "", p.lead, p.heading);
+        check(name, hypot(sim::x - p.x, sim::y - p.y) < pose_tolerance && fabs(getInertial() - p.heading) < 2,
+              hypot(sim::x - p.x, sim::y - p.y), getInertial());
+    }
 }
 
 static void testSwingChain() {

@@ -75,6 +75,7 @@ const double POINT_HEADING_KP = 2.0;
 const double POINT_HEADING_KD = 10;
 // Closer than this (inches), the robot stops re-aiming at the point and just finishes the distance.
 // Very close to the point, small position changes would swing the aim around a lot.
+// (PID_drive_to_pose also looks twice this far ahead along the line it arrives on.)
 const double POINT_AIM_DISTANCE = 6;
 // If the robot has to turn more than this (degrees) to face the point, it turns first, then drives
 const double POINT_TURN_FIRST_ANGLE = 20;

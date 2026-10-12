@@ -7,6 +7,7 @@
 
 #include "vex.h"
 #include "simpleV5lib.h"
+#include <unistd.h>
 #include <string>
 #include <vector>
 

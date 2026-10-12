@@ -84,11 +84,23 @@ static int odometryLoop() {
     return 0;
 }
 
+// In simpleV5lib.cpp: starts a background task, unless one is running already
+bool startTaskOnce(int (*function)());
+
+// Starts the odometry task again if it was stopped (see startTaskOnce in simpleV5lib.cpp). It
+// counts on from where the robot is then: the robot can't drive while it is disabled anyway.
+void keepOdometryRunning() {
+    if (odometry_started) {
+        startTaskOnce(odometryLoop);
+    }
+}
+
 void startOdometry() {
     // exchange sets it to true and tells us what it was: only the very first call gets "false",
-    // so two tasks calling this at the same time can never start two odometry loops
+    // so two tasks calling this at the same time can never make the tracking wheels twice
     if (odometry_started.exchange(true)) {
-        return; // already running
+        keepOdometryRunning(); // started before: make sure it still runs
+        return;
     }
     if (TRACKING_FORWARD_PORT >= 0) {
         forward_wheel = new rotation(TRACKING_FORWARD_PORT, TRACKING_FORWARD_REVERSED);
@@ -96,8 +108,7 @@ void startOdometry() {
     if (TRACKING_SIDEWAYS_PORT >= 0) {
         sideways_wheel = new rotation(TRACKING_SIDEWAYS_PORT, TRACKING_SIDEWAYS_REVERSED);
     }
-    // The task keeps running in the background after this function returns
-    new task(odometryLoop);
+    startTaskOnce(odometryLoop);
 }
 
 // In simpleV5lib.cpp: keeps a chained movement's heading in step when the heading jumps
@@ -245,9 +256,11 @@ double getSidewaysTrackingWheel() {
 }
 
 double getX() {
+    keepOdometryRunning();
     return pose_x;
 }
 
 double getY() {
+    keepOdometryRunning();
     return pose_y;
 }

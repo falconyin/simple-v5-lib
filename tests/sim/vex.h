@@ -452,7 +452,12 @@ inline bool taskRunning(const void *fn) {
 inline int taskCount() { std::lock_guard<std::mutex> g(mu); return (int)thr.size(); }
 }
 namespace vex {
-struct task { task(int (*fn)()) { sim::startTask([fn]{ fn(); }, (const void *)fn); } };
+struct task {
+    task(int (*fn)()) { sim::startTask([fn]{ fn(); }, (const void *)fn); }
+protected:
+    // Like the SDK's: which task runs this function, -1 = none
+    static int32_t _index(int (*fn)()) { return fn && sim::taskRunning((const void *)fn) ? 1 : -1; }
+};
 // Copies what the VEX SDK's competition does (V5_20240802, decoded from libv5rt.a): when a mode
 // starts, the task running the other mode's function is stopped and a new task runs this mode's
 // function. Disabled stops both. Only the task running *that function* is stopped, unless

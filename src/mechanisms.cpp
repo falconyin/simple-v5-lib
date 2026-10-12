@@ -12,8 +12,6 @@ static Arm* arms[MAX_MECHANISMS];
 static int arm_count = 0;
 static Intake* intakes[MAX_MECHANISMS];
 static int intake_count = 0;
-static task* mechanism_task = nullptr;
-
 static int mechanismLoop() {
     while (true) {
         for (int i = 0; i < arm_count; i++) {
@@ -27,13 +25,14 @@ static int mechanismLoop() {
     return 0;
 }
 
+// In simpleV5lib.cpp: starts a background task, unless one is running already
+bool startTaskOnce(int (*function)());
+
 // Started by the first command, not when the Arm or Intake is made: those are made before main()
-// runs, too early to start a task
+// runs, too early to start a task. Every command checks it again, also one that repeats the last
+// command: the task may have been stopped in between (see startTaskOnce).
 static void startMechanismTask() {
-    if (mechanism_task == nullptr) {
-        // The task keeps running in the background after this function returns
-        mechanism_task = new task(mechanismLoop);
-    }
+    startTaskOnce(mechanismLoop);
 }
 
 // Power in percent (-100 to 100). 100% = 12 V = 12000 mV.
@@ -102,6 +101,7 @@ void Arm::send(int new_command) {
 }
 
 void Arm::moveTo(double degrees, double speed) {
+    startMechanismTask();
     degrees = fmax(lowest, fmin(highest, degrees));
     speed = fmin(100, fabs(speed)); // a speed limit, the direction comes from the PID
     if (last_command == ARM_MOVE && degrees == target && speed == max_speed) {
@@ -119,11 +119,13 @@ bool Arm::isDone() {
 bool Arm::waitUntilDone() {
     while (!isDone()) {
         vexDelay(10);
+        startMechanismTask(); // a stopped task would never finish it
     }
     return arrived;
 }
 
 void Arm::manual(double power) {
+    startMechanismTask();
     if (fabs(power) < DRIVE_DEADBAND) {
         power = 0; // a joystick that doesn't sit exactly at 0 must still let the arm hold
     }
@@ -266,6 +268,7 @@ void Intake::spin(double new_power, bool new_unjam) {
         printf("Only %d Intakes can be used: this one does nothing\n", MAX_MECHANISMS);
         return;
     }
+    startMechanismTask();
     if (new_power == last_power && new_unjam == last_unjam) {
         return; // nothing new: don't start over (a jammed intake stays stopped)
     }
@@ -274,7 +277,6 @@ void Intake::spin(double new_power, bool new_unjam) {
     power = new_power;
     unjam = new_unjam;
     request++; // the background task sees this change and picks up the command
-    startMechanismTask();
 }
 
 void Intake::stop() {

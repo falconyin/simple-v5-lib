@@ -20,7 +20,7 @@ This library uses simple language and easy logic. It helps you get the hang of i
 ## What's Included
 
 * **Autonomous movements:** `PID_forward`, `PID_turn`, `PID_turn_relative`, `PID_turn_shortest`, `PID_swing` and `PID_arc` (drive along a curve), with an optional timeout and max speed. `PID_forward` also keeps the robot driving straight, and traction control (`DRIVE_SLIP_LIMIT`) keeps the wheels from spinning or skidding on the tiles, which would throw the distance measurements off.
-* **Odometry:** the robot keeps track of where it is on the field (x, y in inches), and `PID_drive_to_point` / `PID_turn_to_point` drive to field points. `PID_drive_to_pose` gets to a point *and* arrives facing a heading, in one curve. Works with just the drive motors and inertial sensor; tracking wheels are optional. Correct the position against a wall, by touching it (`setX` / `setY`) or with a distance sensor (`resetXFromWall` / `resetYFromWall`).
+* **Odometry:** the robot keeps track of where it is on the field (x, y in inches), and `PID_drive_to_point` / `PID_turn_to_point` drive to field points. `PID_drive_to_pose` gets to a point *and* arrives facing a heading, in one curve. Works with just the drive motors and inertial sensor; tracking wheels are optional. Correct the position against a wall, by touching it (`setX` / `setY`) or with a distance sensor (`resetXFromWall` / `resetYFromWall`). [Odometry and paths](docs/odometry-and-paths.md) shows how to use all of it, with pictures.
 * **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes. `PID_drive_to_point_chain` turns a list of field points into one smooth path.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
 * **Mechanisms:** an `Arm` (or lift) that moves to a position and holds it there, with a joystick in driver control too, and an `Intake` that notices when it jams (the motor draws a lot of current but can't turn) and runs backwards a moment to free it.
@@ -60,7 +60,7 @@ PID_arc(0, -24, 0.5, 0.2);                          // same, but backing up (neg
 setHeading(0);                                      // "the robot is facing 0 degrees right now" (fine mid-chain too)
 
 // Odometry: field points in inches, x to the right, y forward
-setPose(0, 0, 0);                                   // "I'm at (0, 0) facing 0" (calibrateInertial does this too)
+setPose(0, 0, 0);                                   // "I'm at (0, 0) facing 0" (where calibrateInertial starts odometry)
 PID_drive_to_point(24, 24, 0.5, 0.2);               // turn towards (24, 24) and drive there
 PID_drive_to_point(0, 0, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);  // back up to (0, 0)
 PID_turn_to_point(0, 48, 0.5, 0.2);                 // face (0, 48)
@@ -72,7 +72,8 @@ resetXFromWall(RIGHT_SENSOR, 70);                   // stopped, a distance senso
 // Chained: don't stop between movements (much faster). End with a normal movement.
 PID_forward_chain(24, 3);   // move on to the next movement 3 inches before the target
 PID_turn_chain(90, 10);     // move on 10 degrees before the target
-PID_drive_to_point_chain(24, 24, 4);  // field points too: move on 4 inches before (24, 24), curving to the next
+PID_drive_to_point_chain(24, 24, 2);  // field points too: move on 2 inches before (24, 24), curving to the next
+                                      // (about 2 before a sharp corner, about 8 before a gentle one)
 PID_drive_to_pose_chain(48, 24, 90, 4);  // and poses
 PID_forward(24, 0.3, 0.2);  // stops exactly at the end
 

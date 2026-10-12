@@ -3,7 +3,8 @@
 This page explains the ideas behind every part of the library, in the order you meet them.
 You don't need any of it to *use* the library. But when you want to know why the robot
 does something, or want to write your own library later, start here. Every section points
-to the code that does it.
+to the code that does it. (How to *use* odometry, points and paths, with pictures, is in
+[Odometry and paths](odometry-and-paths.md).)
 
 - [1. PID: the heart of every movement](#1-pid-the-heart-of-every-movement)
 - [2. When is a movement finished?](#2-when-is-a-movement-finished)
@@ -465,7 +466,8 @@ its PID aims `exit_range` inches past the point, and it hands over when the poin
   and in the simulator's real-world layer a path with sharp corners ends within about half an
   inch. Tracking wheels don't slip at all, and get it exact.
 
-`PID_drive_to_pose_chain` chains poses the same way.
+`PID_drive_to_pose_chain` chains poses the same way. Which `exit_range` suits which corner, measured, is in
+[Odometry and paths](odometry-and-paths.md#5-paths-chaining-points).
 
 ---
 

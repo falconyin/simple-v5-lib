@@ -4,6 +4,7 @@
 #   2. with tracking wheels and distance sensors turned on, using an edited copy of the config
 #   3. and 4. the same two again on a "real" robot (-DSIM_REALISTIC): sensor readings and motor
 #      commands 10 ms late, noisy speed readings, a drifting IMU, a drained battery, wheels that slip
+# and then builds (without running) docs/diagrams/diagrams.cpp.
 # Needs a C++17 compiler (g++ or clang++; on Windows, a MinGW g++ such as w64devkit, run from Git Bash:
 # CXX=/d/Tools/w64devkit/bin/g++ tests/run_tests.sh). Usage: tests/run_tests.sh
 set -e
@@ -56,3 +57,11 @@ done
 build_and_run build/tracking_include simulation_test_tracking
 echo "=== The same on a real robot"
 build_and_run build/tracking_include simulation_test_tracking_real -DSIM_REALISTIC
+
+# Not a test: docs/diagrams/diagrams.cpp (the guide's pictures and numbers) calls the library and the
+# simulator too, and nothing else would notice when a change stops it from building. Only built, not run.
+echo "=== docs/diagrams/diagrams.cpp still builds (run docs/diagrams/make_diagrams.sh to draw the pictures)"
+$CXX -std=c++17 -O1 -Wall -Wextra -Wno-unused-parameter -pthread \
+    -I include -I tests/sim \
+    src/*.cpp docs/diagrams/diagrams.cpp \
+    -o build/diagrams

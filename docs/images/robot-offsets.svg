@@ -1,0 +1,35 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='704' height='400' viewBox='0 0 704 400' font-family='-apple-system, Segoe UI, Helvetica, Arial, sans-serif'>
+<title>Where the tracking wheels and distance sensors sit, measured from the robot's center</title>
+<rect width='100%' height='100%' rx='8' fill='#fcfcfb'/>
+<path d='M103.0 107.0 L313.0 107.0 L313.0 317.0 L103.0 317.0 Z' fill='#52514e' fill-opacity='0.08' stroke='#52514e' stroke-opacity='1.00' stroke-width='1.5'/>
+<line x1='103.0' y1='107.0' x2='313.0' y2='107.0' stroke='#52514e' stroke-opacity='1.00' stroke-width='4' stroke-linecap='round'/>
+<rect x='108.6' y='259.6' width='16.8' height='44.8' rx='3' fill='#a8a79f'/>
+<rect x='108.6' y='189.6' width='16.8' height='44.8' rx='3' fill='#a8a79f'/>
+<rect x='108.6' y='119.6' width='16.8' height='44.8' rx='3' fill='#a8a79f'/>
+<rect x='290.6' y='259.6' width='16.8' height='44.8' rx='3' fill='#a8a79f'/>
+<rect x='290.6' y='189.6' width='16.8' height='44.8' rx='3' fill='#a8a79f'/>
+<rect x='290.6' y='119.6' width='16.8' height='44.8' rx='3' fill='#a8a79f'/>
+<text x='208.0' y='97.0' text-anchor='middle' fill='#52514e' font-size='13'>front</text>
+<circle cx='208.0' cy='212.0' r='4.5' fill='#0b0b0b' stroke='#fcfcfb' stroke-width='2'/>
+<text x='208.0' y='232.0' text-anchor='middle' fill='#0b0b0b' font-size='13'>center</text>
+<rect x='244.4' y='192.4' width='11.2' height='39.2' rx='3' fill='#2a78d6'/>
+<line x1='208.0' y1='237.2' x2='250.0' y2='237.2' stroke='#2a78d6' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='3 3'/>
+<rect x='188.4' y='262.4' width='39.2' height='11.2' rx='3' fill='#eb6834'/>
+<line x1='177.2' y1='212.0' x2='177.2' y2='268.0' stroke='#eb6834' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='3 3'/>
+<rect x='224.8' y='128.0' width='22.4' height='14.0' rx='2' fill='#1baf7a'/>
+<line x1='208.0' y1='128.0' x2='236.0' y2='128.0' stroke='#1baf7a' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='3 3'/>
+<line x1='194.0' y1='212.0' x2='194.0' y2='128.0' stroke='#1baf7a' stroke-width='1.5' stroke-linecap='round' stroke-dasharray='3 3'/>
+<line x1='236.0' y1='128.0' x2='236.0' y2='51.0' stroke='#1baf7a' stroke-width='1.5' stroke-linecap='round'/>
+<path d='M236.0 51.0 L239.5 59.3 L232.5 59.3 Z' fill='#1baf7a'/>
+<text x='362.0' y='86.0' text-anchor='start' fill='#0b0b0b' font-size='13'><tspan font-weight='600'>Front distance sensor</tspan></text>
+<text x='362.0' y='104.0' text-anchor='start' fill='#52514e' font-size='13'>DISTANCE_FRONT_AHEAD = 6   (ahead: +)</text>
+<text x='362.0' y='122.0' text-anchor='start' fill='#52514e' font-size='13'>DISTANCE_FRONT_RIGHT = 2   (right: +)</text>
+<text x='362.0' y='140.0' text-anchor='start' fill='#52514e' font-size='12'>measured to the sensor's front, where the beam starts</text>
+<line x1='248.6' y1='135.0' x2='355.0' y2='91.6' stroke='#1baf7a' stroke-width='1.0' stroke-linecap='round'/>
+<text x='362.0' y='198.0' text-anchor='start' fill='#0b0b0b' font-size='13'><tspan font-weight='600'>Forward tracking wheel</tspan></text>
+<text x='362.0' y='216.0' text-anchor='start' fill='#52514e' font-size='13'>TRACKING_FORWARD_OFFSET = 3   (right: +)</text>
+<line x1='257.0' y1='205.0' x2='355.0' y2='203.6' stroke='#2a78d6' stroke-width='1.0' stroke-linecap='round'/>
+<text x='362.0' y='296.0' text-anchor='start' fill='#0b0b0b' font-size='13'><tspan font-weight='600'>Sideways tracking wheel</tspan></text>
+<text x='362.0' y='314.0' text-anchor='start' fill='#52514e' font-size='13'>TRACKING_SIDEWAYS_OFFSET = -4   (behind: -)</text>
+<line x1='229.0' y1='268.0' x2='355.0' y2='301.6' stroke='#eb6834' stroke-width='1.0' stroke-linecap='round'/>
+</svg>

@@ -27,9 +27,10 @@ int main() {
     // The square's corners again, as one smooth path (starting from (0, -12), where the robot is now,
     // so the first side is 36 inches): chained points don't stop, they curve from one point to the
     // next. The last point is a normal movement, so the robot stops exactly there.
-    PID_drive_to_point_chain(0, 24, 4);    // move on 4 inches before the point
-    PID_drive_to_point_chain(24, 24, 4);
-    PID_drive_to_point_chain(24, 0, 4);
+    PID_drive_to_point_chain(0, 24, 2);    // move on 2 inches before the point (sharp corners like a small
+                                           // number, gentle ones a bigger one: see docs/odometry-and-paths.md)
+    PID_drive_to_point_chain(24, 24, 2);
+    PID_drive_to_point_chain(24, 0, 2);
     PID_drive_to_point(0, 0, 0.5, 0.2);
 
     // Wheels slip, so odometry slowly drifts. A wall can fix it. With a distance sensor on the

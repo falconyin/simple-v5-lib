@@ -15,6 +15,15 @@ narrative counterpart and is kept in sync with the code section by section. When
 update the matching section of that doc, the README quick reference, and `include/simpleV5lib.h`'s
 doc comments — these are treated as part of the deliverable, not optional extras.
 
+Two more user-facing docs depend on behaviour: `docs/first-robot-checklist.md` (the real-robot
+steps; keep it in sync when a sim-only constant changes) and `docs/odometry-and-paths.md` (how to
+use odometry, poses, chains and wall resets, with measured simulator numbers such as the
+`exit_range` table and the short-pose miss). Its pictures in `docs/images` are generated:
+`docs/diagrams/diagrams.cpp` drives the library on the simulator and draws the paths as SVG
+(`CXX=... docs/diagrams/make_diagrams.sh`). Rerun it, look at the result, and recheck those numbers
+after changing how point/pose driving or chaining behaves. Its `carrot()` copies `aimPoint`'s rule
+(which is `static`), so a change there must be copied too.
+
 ## Commits
 
 Do **not** add AI attribution to commits or pull requests in this repo: no `Co-Authored-By: Claude`,

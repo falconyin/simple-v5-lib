@@ -235,9 +235,18 @@ inline void stepMechanisms() {
         mech_pos[p] += mech_v[p] * 0.001;
     }
 }
+// While the competition has the robot disabled (competition::test_disable), its motors get no power
+// and coast, whatever the program commands. Enabled again, they go back to the program's commands.
+// (Whether a real motor picks up its last command again, or waits for a new one, is not known.)
+inline bool disabled = false;
+inline void powerOff() {
+    for (int s = 0; s < 2; s++) { cmd[s] = 0; mode[s] = 1; }
+    for (int p = FIRST_MECH_PORT; p < 21; p++) { mech_cmd[p] = 0; mech_mode[p] = 1; }
+}
 inline void step() {               // 1 ms
     commands.record(cmd_in);
     applyCommands(commands.ago(real::command_delay_ms));
+    if (disabled) powerOff();
     stepMechanisms();
     for (int s = 0; s < 2; s++) {
         double power = cmd[s] * gain[s] * real::battery / 12;
@@ -392,11 +401,12 @@ struct inertial { int port; inertial(int p) : port(p) {} bool installed(){ retur
 }
 namespace sim {
 // Cooperative scheduler: only one thread runs at a time, switching only inside vexDelay,
-// and simulated time jumps to the earliest wake-up.
-struct Thr { int id; double wake; };
+// and simulated time jumps to the earliest wake-up. fn is the function the task was started
+// with (main has none): the VEX SDK finds a task by its function to stop it.
+struct Thr { int id; double wake; const void *fn; };
 inline std::mutex mu;
 inline std::condition_variable cv;
-inline std::vector<Thr> thr{{0, 0}};
+inline std::vector<Thr> thr{{0, 0, nullptr}};
 inline int running = 0, next_id = 1;
 inline thread_local int my_id = 0;
 inline void handOff(std::unique_lock<std::mutex> &lk, bool wait_for_me) {
@@ -411,24 +421,88 @@ inline void handOff(std::unique_lock<std::mutex> &lk, bool wait_for_me) {
 }
 inline void vexDelay(uint32_t ms) {
     std::unique_lock<std::mutex> lk(sim::mu);
-    for (auto &t : sim::thr) if (t.id == sim::my_id) t.wake = sim::t_ms + (ms == 0 ? 0.001 : ms);
+    bool stopped = true;
+    for (auto &t : sim::thr) if (t.id == sim::my_id) { t.wake = sim::t_ms + (ms == 0 ? 0.001 : ms); stopped = false; }
+    if (stopped) {
+        // This task was stopped while it was running (it stopped itself): it never runs again
+        sim::handOff(lk, false);
+        sim::cv.wait(lk, []{ return false; });
+    }
     sim::handOff(lk, true);
 }
-namespace vex {
-struct task { task(int (*fn)()) {
-    std::lock_guard<std::mutex> g(sim::mu);
-    int id = sim::next_id++;
-    sim::thr.push_back({id, sim::t_ms});
+namespace sim {
+inline void startTask(std::function<void()> fn, const void *key) {
+    std::lock_guard<std::mutex> g(mu);
+    int id = next_id++;
+    thr.push_back({id, t_ms, key});
     std::thread([fn, id]{
-        sim::my_id = id;
-        { std::unique_lock<std::mutex> lk(sim::mu); sim::cv.wait(lk, [id]{ return sim::running == id; }); }
+        my_id = id;
+        { std::unique_lock<std::mutex> lk(mu); cv.wait(lk, [id]{ return running == id; }); }
         fn();
-        std::unique_lock<std::mutex> lk(sim::mu);
-        for (size_t i = 0; i < sim::thr.size(); i++) if (sim::thr[i].id == id) { sim::thr.erase(sim::thr.begin() + i); break; }
-        sim::handOff(lk, false);
+        std::unique_lock<std::mutex> lk(mu);
+        for (size_t i = 0; i < thr.size(); i++) if (thr[i].id == id) { thr.erase(thr.begin() + i); break; }
+        handOff(lk, false);
     }).detach();
-} };
-struct competition { void autonomous(void(*)()){} void drivercontrol(void(*)()){} };
+}
+// Stopping a task takes it out of the schedule: it stays stuck in the vexDelay it was waiting in
+// (ids are never reused, so it is never woken). A real stopped task may stop sooner, but in a
+// cooperative scheduler it can't be in the middle of anything else.
+// Stops the tasks started with fn, or with all = true every task except main
+inline void stopTasks(const void *fn, bool all = false) {
+    std::lock_guard<std::mutex> g(mu);
+    for (size_t i = 0; i < thr.size(); )
+        if (thr[i].id != 0 && (all || thr[i].fn == fn)) thr.erase(thr.begin() + i); else i++;
+}
+inline bool taskRunning(const void *fn) {
+    std::lock_guard<std::mutex> g(mu);
+    for (auto &t : thr) if (t.fn == fn) return true;
+    return false;
+}
+inline int taskCount() { std::lock_guard<std::mutex> g(mu); return (int)thr.size(); }
+}
+namespace vex {
+struct task {
+    task(int (*fn)()) { sim::startTask([fn]{ fn(); }, (const void *)fn); }
+protected:
+    // Like the SDK's: which task runs this function, -1 = none
+    static int32_t _index(int (*fn)()) { return fn && sim::taskRunning((const void *)fn) ? 1 : -1; }
+};
+// Copies what the VEX SDK's competition does (V5_20240802, decoded from libv5rt.a): when a mode
+// starts, the task running the other mode's function is stopped and a new task runs this mode's
+// function. Disabled stops both. Only the task running *that function* is stopped, except that
+// with bStopAllTasksBetweenModes being disabled stops every task except main (starting a mode
+// doesn't look at that switch). While disabled the motors get no power (sim::disabled). Making a
+// competition sets both switches back to their defaults. (On the real brain the field control
+// system starts the modes; test_auton/test_driver/test_disable do the same here, for tests.)
+struct competition {
+    static inline bool bStopTasksBetweenModes = true;
+    static inline bool bStopAllTasksBetweenModes = false;
+    static inline void (*auton_fn)() = nullptr;
+    static inline void (*driver_fn)() = nullptr;
+    static inline int mode = 0; // 0 disabled, 1 autonomous, 2 driver control
+    competition() { bStopTasksBetweenModes = true; bStopAllTasksBetweenModes = false; auton_fn = driver_fn = nullptr; mode = 0; sim::disabled = false; }
+    void autonomous(void (*f)()) { auton_fn = f; }
+    void drivercontrol(void (*f)()) { driver_fn = f; }
+    bool isEnabled() { return mode != 0; }
+    bool isAutonomous() { return mode == 1; }
+    bool isDriverControl() { return mode == 2; }
+    void test_auton() { start(1, auton_fn, driver_fn); }
+    void test_driver() { start(2, driver_fn, auton_fn); }
+    void test_disable() {
+        mode = 0;
+        sim::disabled = true;
+        if (bStopTasksBetweenModes) { stopFn(auton_fn); stopFn(driver_fn); }
+        if (bStopAllTasksBetweenModes) sim::stopTasks(nullptr, true);
+    }
+private:
+    static void stopFn(void (*f)()) { if (f) sim::stopTasks((const void *)f); }
+    static void start(int new_mode, void (*f)(), void (*other)()) {
+        mode = new_mode;
+        sim::disabled = false;
+        if (bStopTasksBetweenModes) stopFn(other);
+        if (f) sim::startTask(f, (const void *)f);
+    }
+};
 inline void wait(double t, timeUnits u){ vexDelay((uint32_t)(u == timeUnits::msec ? t : t * 1000)); }
 }
 // The macros a VEXcode project's vex.h defines (see ci/vex.h), so a name that clashes with them

@@ -35,3 +35,12 @@ chained drive-to-point missed 5 of 6 such mutations). Timing traps in the cooper
   while idle (SD-card writes), put user code such as `vexDelay(40)` between them.
 - A chained movement hands over while the robot is still rolling, so compute expected values (e.g. a
   `turn_to_point_chain` heading) from the pose at hand-over, not from before the previous movement.
+- A test that stops tasks (`competition::test_disable`, `sim::stopTasks`) should wait with a bounded loop
+  (`for (i < N && !arm.isDone()) vexDelay(10)`) rather than `waitUntilDone`, and let the waiting happen in
+  a task of its own (the simulated `usercontrol`), so a library that doesn't restart its task fails a
+  check instead of hanging. Where the blocking call is the point (main waiting in `PID_forward`), a
+  regression hangs; CI's 10-minute job timeout turns that into a failure.
+- `test_disable` also cuts the motors' power (`sim::disabled`) until `test_auton`/`test_driver`, or a test
+  sets `sim::disabled = false`: nothing moves while disabled, so a later test needs the robot enabled.
+  A disabled period shorter than real (seconds) hides anything that times out meanwhile (the arm's
+  `ARM_TIMEOUT_MS`) or rolls on (odometry): `playMatch` waits `ARM_TIMEOUT_MS + 1000`.

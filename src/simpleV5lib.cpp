@@ -232,6 +232,37 @@ static PIDController makePID(const PIDGains &gains, double integral_range) {
 static MotionRequest makeRequest(motionType type, double target, double error_tolerance, double speed_tolerance,
                                  double timeout_ms, double max_speed);
 
+// ============================================================================
+// Background tasks
+// ============================================================================
+
+// The VEX SDK can tell whether a task is running a function (task::_index), but only to a class
+// made from vex::task. This class is only there to ask it.
+class TaskFinder : public task {
+public:
+    static bool isRunning(int (*function)()) {
+        return _index(function) >= 0;
+    }
+};
+
+// Starts a background task running this function, unless one is running already. The library's
+// tasks (movements, odometry, Arm/Intake, auton selector) call this when they are first needed,
+// and again every time they are used: when the competition mode changes, a program that set
+// Competition.bStopAllTasksBetweenModes = true has every task except main() stopped, and this
+// starts them again. Returns true if it started one.
+bool startTaskOnce(int (*function)()) {
+    static std::atomic<bool> busy(false);
+    while (busy.exchange(true)) {
+        vexDelay(1); // another task is in here: two tasks must not both start one
+    }
+    bool start = !TaskFinder::isRunning(function);
+    if (start) {
+        new task(function); // the task keeps running after this function returns
+    }
+    busy = false;
+    return start;
+}
+
 // Shared between your code and the background task. std::atomic makes sure that when one task
 // changes a value, the other task sees the new value (and everything written before it).
 static std::atomic<bool> motion_running(false);   // a movement is started and not finished yet
@@ -239,7 +270,6 @@ static std::atomic<bool> motion_requested(false); // a new movement is waiting f
 static std::atomic<bool> cancel_requested(false); // cancelMovement() asked the movement to stop
 static std::atomic<double> motion_progress(0);    // how far the current movement has gone (inches or degrees)
 static MotionRequest next_motion;
-static task* motion_task = nullptr;
 // How the last movement went. Written by the background task before it sets motion_running to
 // false, read by lastMovementResult() after waiting for that, so the two never overlap.
 static MovementResult last_result = {0, 0, 0, false};
@@ -859,18 +889,31 @@ static MotionRequest makeChainRequest(motionType type, double target, double exi
     return request;
 }
 
+// Makes sure motionLoop is running: starts it the first time, and again if it was stopped (see
+// startTaskOnce). A movement it was in the middle of will never finish then, and the motors still
+// have that movement's last power: stop the robot and free the drivetrain for the next movement.
+static void keepMotionTaskRunning() {
+    if (startTaskOnce(motionLoop)) {
+        if (motion_running || last_was_chain) {
+            stopDriving();
+        }
+        motion_requested = false;
+        last_was_chain = false;
+        chain_end_time = -1;
+        motion_running = false;
+    }
+}
+
 // Hand a movement to the background task. Waits for the previous movement to finish first.
 static void startMotion(const MotionRequest &request) {
+    keepMotionTaskRunning();
     // Claim the drivetrain: wait until no movement is running, then mark it as running in one
     // step (compare_exchange), so two tasks can never start a movement at the same moment
     bool expected = false;
     while (!motion_running.compare_exchange_weak(expected, true)) {
         expected = false;
         vexDelay(5);
-    }
-    if (motion_task == nullptr) {
-        // Made with "new" so the task object is never destroyed and the task keeps running
-        motion_task = new task(motionLoop);
+        keepMotionTaskRunning();
     }
     next_motion = request;
     next_motion.turn_gains = turnGains;
@@ -1092,21 +1135,31 @@ void PID_arc_chain(double target, double radius, double exit_range, double timeo
 
 // ---------- Waiting and stopping ----------
 
+// (Each of these checks that the background task still runs: a stopped one would never finish
+// the movement, and they would wait forever.)
 void waitUntilDone() {
+    keepMotionTaskRunning();
     while (motion_running) {
         vexDelay(5);
+        keepMotionTaskRunning();
     }
 }
 
 void waitUntilTraveled(double amount) {
+    keepMotionTaskRunning();
     while (motion_running && motion_progress < amount) {
         vexDelay(5);
+        keepMotionTaskRunning();
     }
 }
 
 bool isMoving() {
+    keepMotionTaskRunning();
     return motion_running;
 }
+
+// In odometry.cpp: starts the odometry task again if it was stopped
+void keepOdometryRunning();
 
 MovementResult lastMovementResult() {
     waitUntilDone(); // the background task writes the result right before the movement counts as done
@@ -1114,6 +1167,10 @@ MovementResult lastMovementResult() {
 }
 
 void cancelMovement() {
+    // Driver control calls this in every loop: after a competition mode change that stopped every
+    // task, this is where the library's tasks start again
+    keepMotionTaskRunning();
+    keepOdometryRunning();
     if (motion_running) {
         cancel_requested = true;
         waitUntilDone();

@@ -21,6 +21,7 @@ in [how-it-works.md](how-it-works.md); the steps link to the right section.
 - [10. Distance sensors](#10-distance-sensors)
 - [11. Arm and intake](#11-arm-and-intake)
 - [12. SD card](#12-sd-card)
+- [13. A match, with a competition switch](#13-a-match-with-a-competition-switch)
 - [Things the simulator can't tell: please report](#things-the-simulator-cant-tell-please-report)
 
 ---
@@ -258,6 +259,26 @@ int main() {
   20 ms pause the writing took. No difference: it fits in the pause, nobody will notice it. More
   than about a tenth of a second: please report the numbers.
 
+## 13. A match, with a competition switch
+
+When the competition mode changes, VEXcode stops the task that ran `autonomous()`, usually in the
+middle of a movement. The library's own tasks must carry on, or start again (how this works, and
+how the simulator copies it, is in [How it works, section 5](how-it-works.md#when-the-competition-mode-changes)).
+Plug a competition switch into the controller and run `examples/mechanisms` with your ports.
+
+- [ ] Start autonomous, and switch to disabled while the robot is driving: it stops.
+- [ ] Switch to driver control: the robot doesn't move until you touch the sticks, then drives
+  normally, and the arm and intake answer their buttons.
+- [ ] Again, but stay disabled for 5 seconds, with the arm still on its way when autonomous ends: in
+  driver control its button moves it again. Odometry (on the Brain screen, as in step 4) still matches
+  where the robot is, including how far it rolled after autonomous ended.
+- [ ] Again, with `Competition.bStopAllTasksBetweenModes = true;` as the first line of `main()`:
+  the same.
+- [ ] With that line still in, run the program before plugging in the competition switch, and plug
+  it in (disabled) while the selector shows: taps and Left / Right should now do nothing (the
+  selector stops, see [How it works, section 5](how-it-works.md#when-the-competition-mode-changes)).
+  If they still work, please report it.
+
 ---
 
 ## Things the simulator can't tell: please report
@@ -276,6 +297,8 @@ with what you saw.
 | How late a distance sensor reads | step 10 | worse results right after moving |
 | A motor's hold mode after several stops in a row | step 11 | the arm sags after a few moves |
 | How long an SD card write takes | step 12 | a movement after a pause starts late |
+| Which tasks a change of competition mode stops | step 13 | the robot drives on by itself in driver control, or the arm or intake doesn't answer |
+| A motor picks up its last command again after being disabled | step 13 | the intake autonomous left spinning stands still in driver control |
 | `setPose` while the robot moves | below | the position jumps back to the old value |
 
 The last one: the simulator switches between tasks only when one of them waits, a real Brain

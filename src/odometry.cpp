@@ -26,13 +26,15 @@ static double wheelInches(rotation* wheel) {
     return wheel->position(rotationUnits::rev) * TRACKING_WHEEL_DIAMETER_INCH * M_PI;
 }
 
-static int odometryLoop() {
-    double last_forward = 0;
-    double last_sideways = 0;
-    double last_heading = 0;
-    bool have_start = false;
-    unsigned changes_seen = 0;
+// The last reading. Kept outside the loop, so a loop that was stopped and started again (see
+// keepOdometryRunning) counts on from it, and the robot's movement in between isn't lost.
+static double last_forward = 0;
+static double last_sideways = 0;
+static double last_heading = 0;
+static bool have_start = false;
+static unsigned changes_seen = 0;
 
+static int odometryLoop() {
     while (true) {
         unsigned changes_before = manual_changes;
         double forward = (forward_wheel != nullptr) ? wheelInches(forward_wheel) : getPosition();
@@ -84,11 +86,24 @@ static int odometryLoop() {
     return 0;
 }
 
+// In simpleV5lib.cpp: starts a background task, unless one is running already
+bool startTaskOnce(int (*function)());
+
+// Starts the odometry task again if it was stopped (see startTaskOnce in simpleV5lib.cpp). It
+// counts on from its last reading: the wheels' encoders kept counting while it was stopped, so
+// the robot rolling on after autonomous ended still counts.
+void keepOdometryRunning() {
+    if (odometry_started) {
+        startTaskOnce(odometryLoop);
+    }
+}
+
 void startOdometry() {
     // exchange sets it to true and tells us what it was: only the very first call gets "false",
-    // so two tasks calling this at the same time can never start two odometry loops
+    // so two tasks calling this at the same time can never make the tracking wheels twice
     if (odometry_started.exchange(true)) {
-        return; // already running
+        keepOdometryRunning(); // started before: make sure it still runs
+        return;
     }
     if (TRACKING_FORWARD_PORT >= 0) {
         forward_wheel = new rotation(TRACKING_FORWARD_PORT, TRACKING_FORWARD_REVERSED);
@@ -96,8 +111,7 @@ void startOdometry() {
     if (TRACKING_SIDEWAYS_PORT >= 0) {
         sideways_wheel = new rotation(TRACKING_SIDEWAYS_PORT, TRACKING_SIDEWAYS_REVERSED);
     }
-    // Made with "new" so the task object is never destroyed and the task keeps running
-    new task(odometryLoop);
+    startTaskOnce(odometryLoop);
 }
 
 // In simpleV5lib.cpp: keeps a chained movement's heading in step when the heading jumps
@@ -245,9 +259,11 @@ double getSidewaysTrackingWheel() {
 }
 
 double getX() {
+    keepOdometryRunning();
     return pose_x;
 }
 
 double getY() {
+    keepOdometryRunning();
     return pose_y;
 }

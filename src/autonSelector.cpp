@@ -8,7 +8,6 @@ static void (*auton_routines[MAX_AUTONS])();
 static int auton_count = 0;
 static int selected = 0;
 static std::atomic<bool> selector_running(false); // shared with the background selector task
-static task* selector_task = nullptr;
 
 void addAuton(const char* name, void (*routine)()) {
     if (auton_count >= MAX_AUTONS) {
@@ -75,16 +74,17 @@ static int selectorLoop() {
     return 0;
 }
 
+// In simpleV5lib.cpp: starts a background task, unless one is running already
+bool startTaskOnce(int (*function)());
+
 void startAutonSelector() {
-    if (auton_count == 0 || selector_running) {
+    if (auton_count == 0) {
         return;
     }
     selector_running = true;
-    if (selector_task == nullptr) {
-        // Start selectorLoop in the background, only the first time. Made with "new" so the task
-        // object is never destroyed, which keeps the task running after this function returns.
-        selector_task = new task(selectorLoop);
-    }
+    // Start selectorLoop in the background the first time (and again if it was stopped, see
+    // startTaskOnce). It keeps running after this function returns.
+    startTaskOnce(selectorLoop);
 }
 
 void stopAutonSelector() {

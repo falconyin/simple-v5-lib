@@ -51,6 +51,15 @@ int main() {
     Controller.Screen.print("A: measure track");
     waitForA();
     measureTrackWidth();
+    waitForA();
+
+    // 5. Only if you want the speed profile (DRIVE_ACCELERATION): measure the top speed.
+    //    THE ROBOT DRIVES FORWARD at full power for about a second: give it 6 feet of room.
+    //    (it uses the wheel size from step 3 too)
+    Controller.Screen.clearScreen();
+    Controller.Screen.print("A: measure speed");
+    waitForA();
+    measureTopSpeed();
 
     // Copy the numbers into simpleV5LibConfig.h, download your program again,
     // and run this once more: the numbers should now hardly change.

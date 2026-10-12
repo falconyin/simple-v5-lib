@@ -70,6 +70,18 @@ extern PIDGains swingGains;   // PID_swing
 extern PIDGains forwardGains; // PID_forward, PID_drive_to_point
 extern PIDGains arcGains;     // PID_arc
 
+// The speed profile of PID_forward, PID_drive_to_point and PID_drive_to_pose (see DRIVE_ACCELERATION
+// in simpleV5LibConfig.h). It starts with the config's values. Like the gains, a movement uses the
+// values from the moment it starts, so you can turn it on for some movements only:
+//   speedProfile.acceleration = 150; // from here on, plan the speed
+//   speedProfile.acceleration = 0;   // and from here on, don't
+struct SpeedProfileSettings {
+    double acceleration; // inches/s per second, 0 = no speed profile (DRIVE_ACCELERATION)
+    double top_speed;    // inches/s at full power (DRIVE_TOP_SPEED), 0 = no speed profile either
+    double response_ms;  // how long the drivetrain takes to follow a new power (DRIVE_RESPONSE_MS)
+};
+extern SpeedProfileSettings speedProfile;
+
 // ============================================================================
 // Setup
 // ============================================================================
@@ -157,6 +169,9 @@ void stopDriving(brakeType mode = DRIVE_BRAKE_MODE);
 //   speed_tolerance: how slow the robot must be moving to count as stopped
 //   timeout_ms:      (optional) give up after this many milliseconds
 //   max_speed:       (optional) highest power to use, in percent (0 to 100)
+// With a speed profile (DRIVE_ACCELERATION, speedProfile above), PID_forward, PID_drive_to_point
+// and PID_drive_to_pose plan their speed: speed up at its acceleration, drive at max_speed, slow
+// down to stop at the target. Without one (the default), the PID alone drives, from a gentle start.
 // ============================================================================
 
 // Drive straight. target in inches, negative drives backwards. Tolerances in inches and inches/s.
@@ -422,6 +437,17 @@ struct WheelSizeResult {
     double tracking_wheel_diameter; // inches, 0 without a forward tracking wheel or if it failed
 };
 WheelSizeResult measureWheelSize(double push_inches);
+
+// Drives straight forward at full power until the speed stops growing (about a second), then slows
+// down. Shows DRIVE_TOP_SPEED and DRIVE_RESPONSE_MS to put in simpleV5LibConfig.h, for the speed
+// profile (DRIVE_ACCELERATION). THE ROBOT MOVES: give it about 6 feet of room in front.
+// It counts inches with the wheel size, so run measureWheelSize() first (it uses that result,
+// like measureTrackWidth).
+struct TopSpeedResult {
+    double top_speed;   // inches/s at full power, 0 if the measurement failed
+    double response_ms; // how long it took to get 63% of the way to top speed
+};
+TopSpeedResult measureTopSpeed();
 
 // ============================================================================
 // Driver control: call one of these inside the while loop in usercontrol()

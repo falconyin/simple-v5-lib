@@ -86,6 +86,21 @@ const double POINT_TURN_FIRST_ANGLE = 20;
 // the carrot stays 2 * POINT_AIM_DISTANCE ahead of the robot, so any lead up to 1 gets there.
 const double POSE_LEAD = 0.6;
 
+// ---------- Speed profile (optional: PID_forward, PID_drive_to_point, PID_drive_to_pose) ----------
+// With a speed profile, a drive plans its speed ahead: speed up at DRIVE_ACCELERATION, drive at
+// max_speed, and slow down at DRIVE_ACCELERATION so it stops right at the target. The PID only
+// corrects how far the robot is behind or ahead of that plan. It brakes about as hard as you allow
+// (a little more right at the end), and takes about the same time every run.
+// 0 = off: the PID alone drives, from a gentle start. To try it: measure the two numbers below with
+// measureTopSpeed(), then set about 150 (lower if the wheels slip at the start or the end).
+// speedProfile (simpleV5lib.h) starts with these three values and can be changed in your code.
+const double DRIVE_ACCELERATION = 0; // inches/s per second
+// How fast the robot drives at full power, inches/s (measureTopSpeed). 600 rpm motors with a 2:3
+// gear ratio and 3.25 inch wheels turn the wheels at 68; a real robot is a bit slower.
+const double DRIVE_TOP_SPEED = 68;
+// How long the drivetrain takes to get most of the way (63%) to a new speed, ms (measureTopSpeed)
+const double DRIVE_RESPONSE_MS = 100;
+
 // ---------- When is a movement finished? ----------
 // Default time limits in milliseconds. If a movement takes longer than this
 // (for example the robot is stuck on a wall), it gives up so autonomous can continue.

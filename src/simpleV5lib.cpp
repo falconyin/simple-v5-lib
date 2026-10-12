@@ -24,6 +24,7 @@ PIDGains turnGains = {TURN_KP, TURN_KI, TURN_KD};
 PIDGains swingGains = {SWING_KP, SWING_KI, SWING_KD};
 PIDGains forwardGains = {FORWARD_KP, FORWARD_KI, FORWARD_KD};
 PIDGains arcGains = {ARC_KP, ARC_KI, ARC_KD};
+SpeedProfileSettings speedProfile = {DRIVE_ACCELERATION, DRIVE_TOP_SPEED, DRIVE_RESPONSE_MS};
 
 // ============================================================================
 // Small helpers
@@ -223,6 +224,7 @@ struct MotionRequest {
     PIDGains swing_gains;
     PIDGains forward_gains;
     PIDGains arc_gains;
+    SpeedProfileSettings profile; // a copy of speedProfile, like the gains
 };
 
 static PIDController makePID(const PIDGains &gains, double integral_range) {
@@ -310,6 +312,95 @@ struct OvershootCheck {
         most = fmax(most, -error * direction);
     }
 };
+
+// The speed profile (speedProfile, DRIVE_ACCELERATION): the plan for how fast a drive goes, worked out
+// as it goes. Think of a ghost robot that drives the perfect way: it speeds up at the profile's
+// acceleration up to the cruise speed, and slows down at it again so that it stops exactly at the end.
+// The real robot follows the ghost: it gets the power for the ghost's speed straight away
+// (feedforward), and the PID only corrects how far it is behind or ahead of the ghost. Once the ghost
+// has stopped, the PID finishes the movement on its own, the same as without a profile. (A chained
+// movement's ghost stops at the PID's target too, exit_range past the real one, so the robot is still
+// moving when it hands over, again the same as without a profile.)
+// Call update() once per loop with the seconds since the last one.
+struct Ghost {
+    SpeedProfileSettings profile;
+    double length;       // inches the ghost drives
+    double cruise;       // inches/s, the ghost never goes faster
+    double position = 0; // inches the ghost has driven so far
+    double speed;        // inches/s, the ghost's speed now
+
+    // start_speed: how fast the robot already drives the right way (still rolling from a chained movement)
+    Ghost(const SpeedProfileSettings &profile, double length, double cruise, double start_speed)
+        : profile(profile), length(length), cruise(cruise), speed(fmin(fmax(start_speed, 0), cruise)) {}
+
+    // (a top speed of 0, from a measureTopSpeed() that failed, can't turn a speed into a power: off)
+    bool on() const {
+        return profile.acceleration > 0 && profile.top_speed > 0;
+    }
+
+    // Still driving: the robot follows it. Once it has stopped, the PID finishes on its own.
+    bool moving() const {
+        return on() && position < length;
+    }
+
+    void update(double seconds) {
+        if (!on() || seconds <= 0) {
+            return;
+        }
+        // From this speed the ghost can still stop at the end, slowing down at the acceleration
+        // (speed * speed = 2 * acceleration * distance). A robot that comes in faster than that (from
+        // a chained movement, with little room left) has the ghost drop to that speed at once: the
+        // robot then brakes as hard as traction control allows.
+        double acceleration = profile.acceleration;
+        double can_stop_from = sqrt(2 * acceleration * fmax(length - position, 0));
+        double new_speed = fmin(fmin(speed + acceleration * seconds, cruise), can_stop_from);
+        position = fmin(position + (speed + new_speed) / 2 * seconds, length);
+        speed = new_speed;
+        if (position >= length) {
+            speed = 0; // the ghost has stopped at the end
+        }
+    }
+
+    // The power (percent) for the ghost's speed: full power drives top_speed. The drivetrain needs
+    // response_ms to follow a new power, so this is the power for the speed the ghost will have that
+    // long from now: the robot starts speeding up, and slowing down, just in time.
+    double power() const {
+        Ghost later = *this;
+        double ms = 0;
+        while (ms < profile.response_ms && later.position < length) {
+            double step = fmin(10, profile.response_ms - ms);
+            later.update(step / 1000);
+            ms += step;
+        }
+        double speed_then = later.speed;
+        if (ms < profile.response_ms && speed > 0) {
+            // The ghost stops sooner than that. To stop with it, the robot has to brake already: as
+            // if the ghost kept slowing down after it stopped, the rest of the time
+            speed_then = -profile.acceleration * (profile.response_ms - ms) / 1000;
+        }
+        return speed_then / profile.top_speed * 100;
+    }
+};
+
+// The ghost for a drive of length inches, in the direction travel (+1 forward, -1 backwards). It
+// cruises at max_speed, and starts at the speed the robot already has (only needed, and only read,
+// with a profile).
+static Ghost makeGhost(const MotionRequest &request, double length, double travel) {
+    double start_speed = (request.profile.acceleration > 0) ? getMotorRate() * travel : 0;
+    return Ghost(request.profile, length, request.max_speed / 100 * request.profile.top_speed, start_speed);
+}
+
+// The power to follow a moving ghost: the power its speed needs, and the PID for gap, how far the
+// robot is behind it (inches; its D term brakes when the robot drives faster than the ghost).
+// direction: +1 forward, -1 backwards. No I: the gap stays small the whole way, so the I would add
+// up from the start instead of only near the target. Once the ghost stops, the PID has its I again.
+static double followGhost(const Ghost &ghost, PIDController &pid, double gap, double motor_rate, double direction,
+                          double max_speed) {
+    double power = direction * ghost.power() + pid.compute(gap, motor_rate - direction * ghost.speed) - pid.last_i;
+    pid.error_sum = 0;
+    pid.last_i = 0;
+    return cap(power, max_speed);
+}
 
 static void saveResult(double start_time, double error, double overshoot, bool timed_out) {
     last_result.time_ms = Brain.timer(timeUnits::msec) - start_time;
@@ -563,16 +654,22 @@ static void driveForward(const MotionRequest &request) {
     double pid_target = chaining ? target + direction * request.exit_range : target;
     pid.reset(pid_target);
     telemetryStart("PID_forward", target, target, request.timeout_ms);
+    // (with a speed profile: the ghost drives to the PID's target, see Ghost; once it has stopped,
+    // the PID alone finishes, with startRamp as without a profile)
+    Ghost ghost = makeGhost(request, fabs(pid_target), direction);
 
     bool chained_exit = false;
     bool timed_out = false;
     OvershootCheck overshoot;
+    double last_time = 0;
     while (!cancel_requested) {
         double time = Brain.timer(timeUnits::msec) - start_time;
         if (time > request.timeout_ms) {
             timed_out = true;
             break; // took too long, give up so autonomous can continue
         }
+        ghost.update((time - last_time) / 1000);
+        last_time = time;
 
         double driven = getPosition() - start_position;
         double current_error = target - driven; // to the real target, not the chaining one
@@ -593,8 +690,14 @@ static void driveForward(const MotionRequest &request) {
             }
         }
 
-        double total_correction = cap(pid.compute(pid_target - driven, motor_rate), request.max_speed);
-        total_correction = startRamp(total_correction, time, ramp_from);
+        double total_correction;
+        if (ghost.moving()) {
+            total_correction = followGhost(ghost, pid, direction * ghost.position - driven, motor_rate, direction,
+                                           request.max_speed);
+        } else {
+            total_correction = cap(pid.compute(pid_target - driven, motor_rate), request.max_speed);
+            total_correction = startRamp(total_correction, time, ramp_from);
+        }
 
         // Keep driving straight: if the robot turned clockwise, heading_correction is negative,
         // which slows the left side and speeds up the right side to turn back
@@ -714,16 +817,28 @@ static void driveToPoint(const MotionRequest &request) {
     pid.reset(first_error + pid_offset);
     const char* name = (request.type == MOTION_TO_POSE) ? "PID_drive_to_pose" : "PID_drive_to_point";
     telemetryStart(name, hypot(tx - start_x, ty - start_y), first_error, request.timeout_ms);
+    // With a speed profile: the ghost drives the distance ahead (see Ghost). Only when the robot
+    // roughly faces the way it aims: a chained point it curves to is off to the side, so the distance
+    // ahead is far less than the way there, and the ghost would stop (and brake) in the corner. The
+    // PID alone drives that one, as without a profile.
+    double ghost_length = fmax(0, travel * (first_error + pid_offset));
+    if (fabs(aim - heading) > POINT_TURN_FIRST_ANGLE) {
+        ghost_length = 0;
+    }
+    Ghost ghost = makeGhost(request, ghost_length, travel);
 
     bool chained_exit = false;
     bool timed_out = false;
     OvershootCheck overshoot;
+    double last_time = 0;
     while (!cancel_requested) {
         double time = Brain.timer(timeUnits::msec) - start_time;
         if (time > request.timeout_ms) {
             timed_out = true;
             break; // took too long, give up so autonomous can continue
         }
+        ghost.update((time - last_time) / 1000);
+        last_time = time;
 
         heading = getInertial();
         double ahead = distanceAhead(tx, ty, heading); // what is left to drive (negative = drove past it)
@@ -757,8 +872,15 @@ static void driveToPoint(const MotionRequest &request) {
             }
         }
 
-        double power = cap(pid.compute(ahead + pid_offset, motor_rate), request.max_speed);
-        power = startRamp(power, time, ramp_from);
+        double power;
+        if (ghost.moving()) {
+            // What the ghost still has to drive is what should be left ahead of the robot
+            double ghost_left = travel * (ghost.length - ghost.position);
+            power = followGhost(ghost, pid, ahead + pid_offset - ghost_left, motor_rate, travel, request.max_speed);
+        } else {
+            power = cap(pid.compute(ahead + pid_offset, motor_rate), request.max_speed);
+            power = startRamp(power, time, ramp_from);
+        }
         // Steer towards the aim: push by the angle still to turn, brake by how fast it is turning already
         double heading_correction = aim_error * POINT_HEADING_KP - getGyroRate() * POINT_HEADING_KD;
         // Not facing the point yet? Drive slower until the robot has turned towards it
@@ -878,6 +1000,7 @@ static MotionRequest makeRequest(motionType type, double target, double error_to
     request.lead = 0;
     request.backwards = false;
     request.report_progress = true;
+    request.profile = {0, DRIVE_TOP_SPEED, DRIVE_RESPONSE_MS};
     return request;
 }
 
@@ -920,6 +1043,7 @@ static void startMotion(const MotionRequest &request) {
     next_motion.swing_gains = swingGains;
     next_motion.forward_gains = forwardGains;
     next_motion.arc_gains = arcGains;
+    next_motion.profile = speedProfile;
     cancel_requested = false;
     motion_progress = 0;
     motion_requested = true; // the background task sees next_motion once it sees this

@@ -22,6 +22,7 @@ in [how-it-works.md](how-it-works.md); the steps link to the right section.
 - [11. Arm and intake](#11-arm-and-intake)
 - [12. SD card](#12-sd-card)
 - [13. A match, with a competition switch](#13-a-match-with-a-competition-switch)
+- [14. Optional: a speed profile](#14-optional-a-speed-profile)
 - [Things the simulator can't tell: please report](#things-the-simulator-cant-tell-please-report)
 
 ---
@@ -279,6 +280,23 @@ Plug a competition switch into the controller and run `examples/mechanisms` with
   selector stops, see [How it works, section 5](how-it-works.md#when-the-competition-mode-changes)).
   If they still work, please report it.
 
+## 14. Optional: a speed profile
+
+Only if you want drives to plan their speed (`DRIVE_ACCELERATION`, off unless you set it;
+[Tuning the PID, section 12](tuning.md#12-optional-a-speed-profile) says what it does). Do it
+after steps 3 and 6: it uses the measured wheel size, and the PID still finishes every drive.
+
+- [ ] Run step 5 of `examples/robotSetup` (`measureTopSpeed()`): THE ROBOT DRIVES FORWARD at full
+  power for about a second, so give it 6 feet. Put the `DRIVE_TOP_SPEED` and `DRIVE_RESPONSE_MS`
+  it shows into the config. Run it twice: the numbers should hardly change. (On the simulator it
+  says 69.8 in/s and 99 ms; a drained battery gives less top speed.)
+- [ ] Set `DRIVE_ACCELERATION = 150`, and run `PID_forward(24)` and `PID_forward(48)` a few times
+  with `graphOnScreen(true)`. Goes past the target: more `DRIVE_RESPONSE_MS`. Stops short and
+  creeps in: less. Wheels chirp or slide at the start or end: less `DRIVE_ACCELERATION`.
+- [ ] Compare the times and overshoot (the controller line, as in step 6) with
+  `DRIVE_ACCELERATION = 0`. Keep the profile only if it is better on your robot, and please report
+  what you saw either way.
+
 ---
 
 ## Things the simulator can't tell: please report
@@ -299,6 +317,8 @@ with what you saw.
 | How long an SD card write takes | step 12 | a movement after a pause starts late |
 | Which tasks a change of competition mode stops | step 13 | the robot drives on by itself in driver control, or the arm or intake doesn't answer |
 | A motor picks up its last command again after being disabled | step 13 | the intake autonomous left spinning stands still in driver control |
+| How a drivetrain follows a new power (the simulator's is one smooth lag) | step 14 | `measureTopSpeed()` gives a different `DRIVE_RESPONSE_MS` every run, or the profile still goes past the target with the measured one |
+| Whether the speed profile helps at all on real wheels | step 14 | slower or less exact than `DRIVE_ACCELERATION = 0` |
 | `setPose` while the robot moves | below | the position jumps back to the old value |
 
 The last one: the simulator switches between tasks only when one of them waits, a real Brain

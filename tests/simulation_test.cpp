@@ -613,6 +613,193 @@ static void testTractionControl() {
     check("  a route of points, a chain and a pose doesn't slip", sim::slipped - slipped_before < 0.2, sim::slipped - slipped_before, odometryError());
 }
 
+// The speed profile (speedProfile): watches a running drive every 10 ms
+struct ProfiledDrive {
+    double most_speeding_up = 0, most_slowing_down = 0; // in/s per second, the robot's true speed
+    double fastest = 0;                                  // in/s
+    double y_at_ms = 0;                                  // where it was check_ms after the start
+    double reached_ms = -1;                              // when it first got within 0.3 in of target_y
+};
+static ProfiledDrive watchDrive(double check_ms, double target_y) {
+    ProfiledDrive d;
+    double start = sim::t_ms, last_v = 0;
+    while (isMoving()) {
+        double v = (sim::v[0] + sim::v[1]) / 2;
+        d.most_speeding_up = fmax(d.most_speeding_up, (fabs(v) - fabs(last_v)) / 0.01);
+        d.most_slowing_down = fmax(d.most_slowing_down, (fabs(last_v) - fabs(v)) / 0.01);
+        d.fastest = fmax(d.fastest, fabs(v));
+        if (sim::t_ms - start <= check_ms) d.y_at_ms = sim::y;
+        if (d.reached_ms < 0 && fabs(sim::y - target_y) < 0.3) d.reached_ms = sim::t_ms - start;
+        last_v = v;
+        vexDelay(10);
+    }
+    return d;
+}
+// Where the plan (speed up at a, cruise at cruise, slow down at a) has the robot t seconds into a
+// long drive, while it is still speeding up or cruising
+static double plannedPosition(double a, double cruise, double t) {
+    double speed_up_time = cruise / a;
+    if (t <= speed_up_time) return a * t * t / 2;
+    return cruise * speed_up_time / 2 + cruise * (t - speed_up_time);
+}
+
+static void testSpeedProfile() {
+    speedProfile.acceleration = 100;
+    double cruise = 0.5 * DRIVE_TOP_SPEED; // max_speed 50
+    reset();
+    PID_forward_async(48, 0.3, 0.2, FORWARD_TIMEOUT_MS, 50);
+    ProfiledDrive d = watchDrive(500, 48);
+    MovementResult r = lastMovementResult();
+    // (Without a profile, PID_forward(48) at max_speed 50 speeds up and brakes at about 200.)
+    // The robot starts slowing down a little before the plan does (the feedforward looks
+    // DRIVE_RESPONSE_MS ahead), more gently, so it brakes a bit harder than the plan right at the
+    // end; in the realistic runs, with late readings and commands, more so
+    double most_braking = sim::isRealistic() ? 1.8 : 1.4;
+    // Overshoot: under 0.1 inch on the perfect robot (0.3 without the brake at the end of power()),
+    // the realistic runs' late readings and commands add some
+    double most_overshoot = sim::isRealistic() ? 0.4 : 0.15;
+    check("speed profile: speeds up at its acceleration", d.most_speeding_up < 100 * 1.2, d.most_speeding_up, 100);
+    check("  slows down at about its acceleration", d.most_slowing_down < 100 * most_braking, d.most_slowing_down, 100);
+    check("  and stops at the target", fabs(sim::y - 48) < 0.3 && r.overshoot < most_overshoot && !r.timed_out, sim::y, r.overshoot);
+    check("  cruises at max_speed", fabs(d.fastest - cruise) < cruise * 0.1, d.fastest, cruise);
+    // The feedforward makes it follow the plan: half a second in, it is where the plan says
+    // (only the PID, starting from 0 power, would be inches behind)
+    double planned = plannedPosition(100, cruise, 0.5);
+    check("  follows the plan (feedforward)", fabs(d.y_at_ms - planned) < 1, d.y_at_ms, planned);
+    // Plan: 0.34 s speeding up and slowing down each (5.8 in each), 36.4 in at 34 in/s: 1.75 s, and
+    // the last 0.3 inches take 0.08 s of that.
+    // (Then it still has to settle; the realistic runs' noisy speed readings take longer to.) The
+    // realistic runs arrive up to 0.1 s late: their 11 V battery drives slower than DRIVE_TOP_SPEED
+    // says, and readings and commands are late.
+    double arrival_off = sim::isRealistic() ? 200 : 100;
+    check("  gets there when planned", fabs(d.reached_ms - 1670) < arrival_off, d.reached_ms, 1670);
+
+    // Backwards, and a short one that never gets to cruise (it speeds up, then slows down at once)
+    reset();
+    PID_forward(-24, 0.3, 0.2);
+    r = lastMovementResult();
+    check("  backwards", fabs(sim::y + 24) < 0.3 && r.overshoot < most_overshoot, sim::y, r.overshoot);
+    reset();
+    PID_forward(6, 0.3, 0.2);
+    r = lastMovementResult();
+    check("  a short drive", fabs(sim::y - 6) < 0.3 && r.overshoot < most_overshoot, sim::y, r.overshoot);
+
+    // A drive to a point drives the same profile
+    reset();
+    PID_drive_to_point_async(0, 48, 0.5, 0.2, FORWARD_TIMEOUT_MS, 50);
+    d = watchDrive(500, 48);
+    r = lastMovementResult();
+    check("  drive to point: same speeds", d.most_speeding_up < 100 * 1.2 && d.most_slowing_down < 100 * most_braking
+          && fabs(d.fastest - cruise) < cruise * 0.1, d.most_speeding_up, d.most_slowing_down);
+    check("    and plan", fabs(d.reached_ms - 1670) < arrival_off, d.reached_ms, 1670);
+    check("  and gets there", fabs(sim::y - 48) < 0.5 && r.overshoot < most_overshoot + 0.15, sim::y, r.overshoot);
+    // Backwards, after turning towards a point behind and to the side
+    reset();
+    PID_drive_to_point(24, -24, 0.5, 0.2, FORWARD_TIMEOUT_MS, 100, true);
+    check("  backwards to a point beside it", hypot(sim::x - 24, sim::y + 24) < 1, sim::x, sim::y);
+
+    // Chained: the robot is still moving when it hands over, and the next drive goes on from there
+    reset();
+    PID_forward_chain(24, 3);
+    double handover_speed = getMotorRate();
+    PID_forward_async(24, 0.3, 0.2);
+    vexDelay(50);
+    double speed_after_handover = getMotorRate();
+    waitUntilDone();
+    // (its ghost stops exit_range past the target: about 35 in/s here, 24 if it stopped at the target)
+    check("  chained: hands over still moving", handover_speed > 30, handover_speed, 30);
+    check("  the next one's ghost starts at that speed", speed_after_handover >= handover_speed, speed_after_handover, handover_speed);
+    check("  and the next one ends at 48", fabs(sim::y - 48) < 0.3, sim::y, 48);
+    // A chained square of points: about as fast as without a profile (5.6 s, realistic 6.2; with
+    // a profile 5.8 and 6.2 to 6.5, its gentler starts out of the corners)
+    reset();
+    double start = sim::t_ms;
+    PID_drive_to_point_chain(0, 48, 4);
+    PID_drive_to_point_chain(48, 48, 4);
+    PID_drive_to_point_chain(48, 0, 4);
+    PID_drive_to_point(0, 0, 0.5, 0.2);
+    double square_ms = sim::isRealistic() ? 7000 : 6000;
+    check("  chained square of points", hypot(sim::x, sim::y) < 1 && sim::t_ms - start < square_ms, hypot(sim::x, sim::y), sim::t_ms - start);
+
+    // A top speed and response time 10% and 30% off (not measured): the PID still finishes at the target
+    for (double off : {0.9, 1.1}) {
+        reset();
+        speedProfile.top_speed = DRIVE_TOP_SPEED * off;
+        speedProfile.response_ms = DRIVE_RESPONSE_MS * (off < 1 ? 0.7 : 1.3);
+        PID_forward(48, 0.3, 0.2);
+        r = lastMovementResult();
+        check(off < 1 ? "  top speed and response too low: still gets there" : "  too high: still gets there",
+              fabs(sim::y - 48) < 0.3 && r.overshoot < 1.5 && !r.timed_out, sim::y, r.overshoot);
+    }
+    speedProfile.top_speed = DRIVE_TOP_SPEED;
+    speedProfile.response_ms = DRIVE_RESPONSE_MS;
+
+    // A movement keeps the speedProfile it started with
+    reset();
+    PID_forward_async(48, 0.3, 0.2, FORWARD_TIMEOUT_MS, 50);
+    speedProfile.acceleration = 0;
+    d = watchDrive(500, 48);
+    check("  speedProfile changed after start: movement keeps its own", d.most_speeding_up < 130, d.most_speeding_up, 100);
+    // And 0 is no profile: back to the PID's own gentle start, which speeds up faster
+    reset();
+    PID_forward_async(48, 0.3, 0.2, FORWARD_TIMEOUT_MS, 50);
+    d = watchDrive(500, 48);
+    check("  acceleration 0: no profile", d.most_speeding_up > 150, d.most_speeding_up, 150);
+
+    // No I while following the ghost: the gap to it stays inside FORWARD_INTEGRAL_RANGE the whole
+    // way, so the I would add up from the start (with kI 0.5: 0.25 s slower and twice the overshoot,
+    // 0.28 in on the realistic runs). With the ghost moving, kI changes nothing; it only counts at
+    // the end, where the realistic runs' noisy readings make it differ a little.
+    MovementResult with_ki[2];
+    for (int i = 0; i < 2; i++) {
+        reset();
+        speedProfile.acceleration = 100;
+        forwardGains.ki = (i == 0) ? FORWARD_KI : 0.5;
+        PID_forward(48, 0.3, 0.2, FORWARD_TIMEOUT_MS, 50);
+        with_ki[i] = lastMovementResult();
+    }
+    forwardGains.ki = FORWARD_KI;
+    double ki_ms_off = sim::isRealistic() ? 120 : 20;
+    double ki_overshoot_off = sim::isRealistic() ? 0.08 : 0.02;
+    check("  no I while following the ghost: a big kI changes little",
+          fabs(with_ki[1].time_ms - with_ki[0].time_ms) < ki_ms_off
+          && with_ki[1].overshoot < with_ki[0].overshoot + ki_overshoot_off, with_ki[1].time_ms - with_ki[0].time_ms,
+          with_ki[1].overshoot - with_ki[0].overshoot);
+
+    // A chained point it curves to (here 45 degrees off to the side): the PID alone drives it, as
+    // without a profile. (A ghost for the distance ahead, less than the way there, stops early and
+    // the PID takes over without startRamp: out of the corner the power jumped by 26 instead of 13 in
+    // 10 ms. A 90 degree corner can't tell, CORNER_POWER drives it.) Only the perfect runs can tell:
+    // on the realistic ones the ghost reads the speed, which moves the noise on, and that alone
+    // changes the corner about as much as the ghost did (20 ms).
+    double corner_ms[2], corner_x[2];
+    for (int on = 0; on < 2; on++) {
+        reset();
+        speedProfile.acceleration = 0;
+        PID_drive_to_point_chain(0, 24, 4);
+        speedProfile.acceleration = on ? 150 : 0;
+        double corner_start = sim::t_ms;
+        PID_drive_to_point_chain(24, 48, 4);
+        corner_ms[on] = sim::t_ms - corner_start;
+        corner_x[on] = sim::x;
+        cancelMovement();
+    }
+    double corner_ms_off = sim::isRealistic() ? 50 : 5;
+    double corner_x_off = sim::isRealistic() ? 0.3 : 0.01;
+    check("  a chained point it curves to: as without a profile", fabs(corner_ms[1] - corner_ms[0]) < corner_ms_off
+          && fabs(corner_x[1] - corner_x[0]) < corner_x_off, corner_ms[1] - corner_ms[0], corner_x[1] - corner_x[0]);
+
+    // A top speed of 0 (a measureTopSpeed() that failed) can't turn a speed into a power: no
+    // profile, instead of a power that isn't a number (the robot drove on for 300 inches)
+    reset();
+    speedProfile.acceleration = 150;
+    speedProfile.top_speed = 0;
+    PID_forward(24, 0.3, 0.2);
+    check("  top speed 0: no profile, still gets there", fabs(sim::y - 24) < 0.3, sim::y, 24);
+    speedProfile.top_speed = DRIVE_TOP_SPEED;
+    speedProfile.acceleration = DRIVE_ACCELERATION;
+}
+
 // setHeading between chained movements: the next one keeps aiming the same real direction.
 // The robot is still turning at the hand-over, so expect the turn's target in the new numbers.
 static void testSetHeadingInChain() {
@@ -1441,6 +1628,38 @@ static void testMeasureTrackWidth() {
     check("measureTrackWidth: robot that turns like a 13 inch track", fabs(track.track_width - 13) < 0.1, track.track_width, 13);
 }
 
+// The simulated drivetrain: full power is sim::MAXV (on a drained battery, less), and it gets 63% of
+// the way to a new speed in sim::TAU, plus the realistic runs' late readings and commands
+static double simTopSpeed() { return sim::MAXV * sim::real::battery / 12; }
+static double simResponseMs() { return sim::TAU * 1000 + sim::real::sensor_delay_ms + sim::real::command_delay_ms; }
+
+static void testMeasureTopSpeed() {
+    reset();
+    TopSpeedResult top = measureTopSpeed();
+    check("measureTopSpeed: top speed", fabs(top.top_speed - simTopSpeed()) < simTopSpeed() * 0.01, top.top_speed, simTopSpeed());
+    check("  response time", fabs(top.response_ms - simResponseMs()) < 10, top.response_ms, simResponseMs());
+    check("  shows them", showed("DRIVE_TOP_SPEED = ") && showed("DRIVE_RESPONSE_MS = "), 0, 0);
+    check("  levelled off: no 'still speeding up'", !showed("Still speeding up"), 0, 0);
+    // A robot that keeps getting faster (its wheels turning more freely as it goes) never levels off
+    reset();
+    static bool loosening;
+    loosening = true;
+    task loosen_task([]() -> int {
+        for (double t = 0; loosening; t += 0.01) { sim::gain[0] = sim::gain[1] = 0.2 + 0.5 * t; vexDelay(10); }
+        return 0;
+    });
+    measureTopSpeed();
+    loosening = false;
+    vexDelay(20);
+    sim::gain[0] = sim::gain[1] = 1;
+    check("  still speeding up after 1.5 s: says so", showed("Still speeding up"), 0, 0);
+    reset();
+    sim::gain[0] = sim::gain[1] = 0; // the wheels can't turn
+    top = measureTopSpeed();
+    sim::gain[0] = sim::gain[1] = 1;
+    check("measureTopSpeed: robot that doesn't drive -> 0", top.top_speed == 0 && showed("does it drive forward?"), top.top_speed, 0);
+}
+
 // These change the wheel sizes in the simulator, which makes odometry jump: keep them last
 static void testMeasureWheelSize() {
     settle();
@@ -1463,6 +1682,11 @@ static void testMeasureWheelSize() {
     check("measureTrackWidth after measureWheelSize: still 12", fabs(track.track_width - 12) < 0.1, track.track_width, 12);
     check("  tracking wheel offsets with the measured wheel size", fabs(track.forward_offset - TRACKING_FORWARD_OFFSET) < 0.02
           && fabs(track.sideways_offset - TRACKING_SIDEWAYS_OFFSET) < 0.02, track.forward_offset, track.sideways_offset);
+    // So must the top speed: the bigger wheels drive faster than the config's wheel size counts
+    reset();
+    TopSpeedResult top = measureTopSpeed();
+    check("measureTopSpeed after measureWheelSize: the real speed", fabs(top.top_speed - simTopSpeed()) < simTopSpeed() * 0.01,
+          top.top_speed, simTopSpeed());
 }
 
 // The tests run one after another on the same simulated robot, in this order: each one starts
@@ -1499,9 +1723,11 @@ int main() {
     testIntake();
     testTooManyMechanisms();
     testCompetitionModes();
+    testSpeedProfile();
     testCheckDevices();
     testTestDrivetrain();
     testMeasureTrackWidth();
+    testMeasureTopSpeed();
     testMeasureWheelSize(); // keep last, see there
 
     printf("%d failures\n", fails);

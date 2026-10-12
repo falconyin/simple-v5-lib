@@ -26,6 +26,7 @@ same shapes.
 - [9. Looking closer: the numbers behind the graph](#9-looking-closer-the-numbers-behind-the-graph)
 - [10. Other settings that change how a movement ends](#10-other-settings-that-change-how-a-movement-ends)
 - [11. What you see, what to change](#11-what-you-see-what-to-change)
+- [12. Optional: a speed profile](#12-optional-a-speed-profile)
 
 ---
 
@@ -279,6 +280,7 @@ the numbers you give each movement, decide when it counts as there:
 | `FORWARD_HEADING_KP` | Keeps `PID_forward` straight: power added per degree it drifts | It drifts off a degree or two over 48 inches (raise), or weaves (lower) |
 | `POINT_HEADING_KP`, `POINT_HEADING_KD` | Steering while driving to a point or a pose | It weaves on the way (less KP, or more KD), or turns too slowly onto the point (more KP) |
 | `DRIVE_SLIP_LIMIT` | Traction control: how far the power can get ahead of the wheels | The wheels chirp or slide at starts and stops (lower); see the [checklist, step 8](first-robot-checklist.md#8-traction-control) |
+| `DRIVE_ACCELERATION`, `DRIVE_RESPONSE_MS` | The speed profile, off (0) unless you turn it on ([section 12](#12-optional-a-speed-profile)) | With the profile on: it goes past the target (more `DRIVE_RESPONSE_MS`), stops short and creeps in (less), or the wheels slip (less `DRIVE_ACCELERATION`) |
 
 ## 11. What you see, what to change
 
@@ -293,6 +295,83 @@ the numbers you give each movement, decide when it counts as there:
 | Turns go crazy, spinning faster and faster | Not a gain: `getGyroRate` has the wrong sign. Run `testDrivetrain()` |
 | `PID_forward` ends turned a few degrees | `FORWARD_HEADING_KP` ([section 10](#10-other-settings-that-change-how-a-movement-ends)) |
 | A movement goes the wrong way, or the robot fights itself | Not a gain: wiring or motor directions. Run `examples/robotSetup` |
+| With the speed profile on: goes past the target, or stops short and creeps in | `DRIVE_RESPONSE_MS` first, not the gains ([section 12](#12-optional-a-speed-profile)) |
+
+## 12. Optional: a speed profile
+
+Everything above is about the PID alone, and that is how the library drives unless you turn the
+speed profile on. With only a PID, how fast a drive speeds up and how hard it brakes comes out of
+the gains: P asks for full power far from the target and less near it, D brakes, and traction
+control ([How it works, section 1](how-it-works.md#not-letting-the-wheels-slip-traction-control))
+keeps it from slipping. A speed profile *plans* it instead: speed up at `DRIVE_ACCELERATION`
+(inches/s per second), drive at `max_speed`, slow down at `DRIVE_ACCELERATION` again so it stops at
+the target. The robot gets the power for the planned speed straight away, and the PID only corrects
+how far the robot is behind or ahead of the plan; at the end, the PID finishes the movement as
+always. It works for `PID_forward`, `PID_drive_to_point` and `PID_drive_to_pose` (turns, swings and
+arcs keep the PID alone). [How it works, section 3](how-it-works.md#planning-the-speed-a-speed-profile)
+explains how.
+
+![The robot's speed during PID_forward(48), without a profile and with acceleration 150](images/speed-profile.svg)
+
+The dashed line is the plan for `PID_forward(48)` with acceleration 150: up to full speed in under
+half a second, then down again. The orange robot follows it. The blue one, the PID alone, speeds up
+about as fast here, but brakes harder: as hard as traction control allows.
+
+**Tune the PID first**, with the profile off: the gains still finish every movement. Then:
+
+1. **Measure the robot.** `measureTopSpeed()` (step 5 of `examples/robotSetup`) drives forward
+   at full power for about a second and shows `DRIVE_TOP_SPEED` (how fast full power drives) and
+   `DRIVE_RESPONSE_MS` (how long the drivetrain takes to follow a new power). Put them in the
+   config: the profile turns the planned speed into a power with them.
+2. **Turn it on:** `DRIVE_ACCELERATION = 150` in the config, or `speedProfile.acceleration = 150;`
+   in your code, for the movements after it.
+3. **Try `PID_forward(24)` and `PID_forward(48)`** a few times, with the graph on.
+   - Goes past the target: more `DRIVE_RESPONSE_MS` (the robot starts braking a little earlier).
+   - Stops a bit short and creeps in slowly: less `DRIVE_RESPONSE_MS`.
+   - The wheels chirp or slide at the start or the end: less `DRIVE_ACCELERATION`. Wheels with
+     good grip can take more, but traction control (`DRIVE_SLIP_LIMIT`) still limits how hard any
+     movement pushes and brakes, so far more than that changes little.
+
+How it does on the simulator, with the numbers `measureTopSpeed()` measured there, 10 runs each
+(ends: + = stopped short, - = went past):
+
+| | Perfect simulator (69.8 in/s, 99 ms) | Realistic simulator (64.1 in/s, 118 ms) |
+| --- | --- | --- |
+| `PID_forward(6)`, no profile | 0.66 s, overshoot 0.07, ends -0.07 | 0.96 to 1.05 s, overshoot 0.11 to 0.12, ends 0.00 to 0.01 |
+| `PID_forward(6)`, acceleration 150 | 0.72 s, overshoot 0.03, ends -0.03 | 0.80 to 0.85 s, overshoot 0.03 to 0.04, ends -0.04 to -0.03 |
+| `PID_forward(24)`, no profile | 1.28 s, overshoot 0.15, ends 0.01 | 1.29 to 1.33 s, overshoot 0.26, ends 0.02 |
+| `PID_forward(24)`, acceleration 150 | 1.26 s, overshoot 0.09, ends 0.00 | 1.06 to 1.17 s, overshoot 0.00 to 0.01, ends -0.01 to 0.00 |
+| `PID_forward(48)`, no profile | 1.62 s, overshoot 0.16, ends 0.01 | 1.65 to 1.81 s, overshoot 0.32, ends 0.02 to 0.03 |
+| `PID_forward(48)`, acceleration 150 | 1.62 s, overshoot 0.12, ends 0.00 | 1.21 to 1.25 s, overshoot 0.00, ends 0.02 to 0.03 |
+| `PID_forward(72)`, no profile | 1.97 s, overshoot 0.16, ends 0.01 | 2.04 to 2.08 s, overshoot 0.32, ends 0.02 to 0.03 |
+| `PID_forward(72)`, acceleration 150 | 1.95 s, overshoot 0.11, ends 0.00 | 1.76 to 1.89 s, overshoot 0.00, ends 0.00 to 0.01 |
+
+On the perfect simulator it makes little difference: its wheels react at once and never slip, so
+the PID alone already does well (the profile goes a little less past the target). The realistic
+one has readings and commands that arrive 10 ms late, a drained battery and wheels that can slip:
+there the PID alone goes about 0.3 inches past the target, and with the profile hardly at all,
+and drives take 0.15 to 0.5 s less.
+
+A `DRIVE_RESPONSE_MS` that isn't what `measureTopSpeed()` says (acceleration 150):
+
+| | Perfect simulator | Realistic simulator |
+| --- | --- | --- |
+| `PID_forward(24)`, 30% too low (69 ms, 83 ms) | 1.30 s, overshoot 0.55, ends 0.03 | 1.26 to 1.38 s, overshoot 0.61 to 0.62, ends 0.03 to 0.04 |
+| `PID_forward(48)`, 30% too low | 1.65 s, overshoot 0.63, ends 0.03 | 1.64 to 1.94 s, overshoot 0.68, ends 0.00 to 0.05 |
+| `PID_forward(24)`, 30% too high (128 ms, 154 ms) | 1.20 s, overshoot 0.03, ends -0.03 | 1.25 to 1.62 s, overshoot 0.06, ends -0.06 to 0.00 |
+| `PID_forward(48)`, 30% too high | 1.54 s, overshoot 0.03, ends -0.03 | 1.64 to 1.95 s, overshoot 0.05 to 0.06, ends -0.05 to 0.00 |
+
+Too low goes past the target; too high brakes early and takes longer to creep in (on the realistic
+simulator; on the perfect one a bit more than measured happened to be faster still). Either way the
+PID still gets it there: the profile only changes how. `DRIVE_TOP_SPEED` matters less: 10% off
+hardly changes these numbers. These are the simulator's numbers; a real robot's will differ, so
+measure yours.
+
+A chained movement's plan stops `exit_range` past its target, so the robot is still moving when
+the next one takes over, and the next one's plan starts at the speed the robot has. A drive to a
+point plans the distance ahead of the robot when it starts driving: after turning towards the
+point first, that is all of it, but a chained point that curves around a corner starts with the
+point off to the side (more than 20°), so the PID alone drives that one, as without a profile.
 
 ## Making the pictures
 
@@ -300,6 +379,8 @@ The graphs on this page are drawn by `docs/diagrams/diagrams.cpp`: it runs each 
 simulator with `graphOnScreen(true)`, and draws every line and text the library put on the
 simulator's Brain screen. It also prints the numbers in this page's tables. The
 simulator's wheels have no friction, except in the two pictures of [section 6](#6-ki-only-if-it-stops-short)
-and their table (`sim::real::friction` in `tests/sim/vex.h`). After changing how a movement
+and their table (`sim::real::friction` in `tests/sim/vex.h`). The speed picture in
+[section 12](#12-optional-a-speed-profile) is the simulated robot's true speed instead, and that
+section's tables also come from the realistic simulator (`sim::realistic`). After changing how a movement
 drives, run `docs/diagrams/make_diagrams.sh`, look at the pictures again, and compare the numbers
 with this page.

@@ -77,7 +77,8 @@ Full power from standing still makes the wheels slip, and slipping wheels make t
 measurement wrong. So the power is limited to a ramp that starts at 30% and rises to 100% over
 0.3 s (`startRamp`). The ramp only limits how *hard* the robot pushes; the direction always
 comes from the PID. After a chained movement (section 6) the robot is already moving, and the
-ramp starts from the power the drivetrain already has instead of from 30%.
+ramp starts from the power the drivetrain already has instead of from 30%. (With a speed profile,
+section 3, a drive plans its speed instead and needs no ramp.)
 
 ### Not letting the wheels slip: traction control
 
@@ -169,6 +170,53 @@ right = power - correction
 
 If both sides together would need more than `max_speed`, both are scaled down by the same
 amount (`scaleDown`, inside `driveWithGrip`), so the robot still steers the same way.
+
+### Planning the speed: a speed profile
+
+This part is off unless you turn it on (`DRIVE_ACCELERATION`, 0 by default;
+[Tuning the PID, section 12](tuning.md#12-optional-a-speed-profile) shows how and what it does).
+
+With the PID alone, nobody decides how fast the robot speeds up or how hard it brakes: it comes
+out of the gains, the distance, and traction control. A **speed profile** plans it. Picture a
+**ghost robot** that drives the drive perfectly (`Ghost` in `src/simpleV5lib.cpp`): it speeds up
+at `DRIVE_ACCELERATION`, drives at `max_speed`, and slows down at `DRIVE_ACCELERATION` again so it
+stops exactly at the target. Every 10 ms it works out its next speed:
+
+```
+speed = the smallest of:  speed + acceleration * 0.01   (speeding up)
+                          max_speed                     (cruising)
+                          the speed it can still stop from in the distance left
+```
+
+The last one is what makes it slow down in time. Stopping from speed `v` at acceleration `a`
+takes `v * v / (2 * a)` inches, so with `d` inches left the ghost can be at most `sqrt(2 * a * d)`
+fast. On a short drive it never reaches `max_speed`: it speeds up, then slows down at once.
+
+The real robot follows the ghost in two parts:
+
+- **Feedforward**: it gets the power for the ghost's speed straight away. Full power drives
+  `DRIVE_TOP_SPEED` inches/s, so 34 inches/s on a robot with a top speed of 68 needs 50%. But the
+  drivetrain needs a moment (`DRIVE_RESPONSE_MS`) to follow a new power, so it gets the power for
+  the speed the ghost will have *that long from now* (`Ghost::power`): it starts speeding up and
+  slowing down just in time. (When the ghost stops sooner than that, the robot already has to
+  brake: the power goes below 0.)
+- **The PID** only corrects the rest: its error is how far the robot is behind the ghost, and
+  its D brakes when the robot drives faster than the ghost. If the feedforward were perfect, the
+  PID would have nothing to do. It has no I while it follows the ghost: being a little behind
+  the ghost is an error that stays small the whole way, so the I (section 1: only for the last
+  bit near the target) would add up from the start and push the robot past the target.
+
+Once the ghost has stopped at the target, the PID's error is the distance to the target, exactly
+as without a profile: the PID finishes the movement on its own, I and gentle ramp included, with
+the same tolerances. `measureTopSpeed()` (section 10) measures `DRIVE_TOP_SPEED` and
+`DRIVE_RESPONSE_MS`; a robot whose numbers are a bit off still ends at the target, only less
+smoothly. (A top speed of 0, from a measurement that failed, turns the profile off.) Without the
+profile, the robot starts with the gentle ramp from section 1 instead.
+
+The profile drives `PID_forward`, `PID_drive_to_point` and `PID_drive_to_pose` (section 8);
+movements that end at a heading (turns, swings, arcs) keep the PID alone. The settings live in
+`speedProfile` while the program runs, so your code can turn the profile on for some movements
+only, and like the gains, each movement keeps the settings it started with.
 
 ---
 
@@ -289,6 +337,9 @@ Some details that keep chains exact:
   after it measures from where the previous one's *target* was, so 24 + 24 + 24 ends at 72.
 - **Safety stop**: if nothing follows a chained movement within `CHAIN_STOP_AFTER_MS`, the
   background task stops the drivetrain, so the robot can't drive off on its own.
+- **With a speed profile** (section 3): a chained movement's ghost stops where its PID aims,
+  `exit_range` past the target, so the robot is still moving at the hand-over, and the next
+  movement's ghost starts at the speed the robot has.
 
 ---
 
@@ -425,6 +476,13 @@ so reset near the wall.
 
 It is finished when the point is (almost) 0 inches ahead, the robot has stopped, and it faces
 the way it was aiming. The robot can't drive sideways, so a tiny sideways miss is accepted.
+
+With a speed profile (section 3), the ghost drives the distance the point is ahead when the drive
+starts, and the PID's error in step 2 is how far that is from what the ghost still has to go.
+After the turn first, that is the whole way. A chained point the robot curves towards starts off
+to its side, so the distance ahead is less than the way there, and a ghost would stop in the
+middle of the curve. So when the robot doesn't face the point within `POINT_TURN_FIRST_ANGLE`
+(20°) at the start, there is no ghost: the PID alone drives that one, as without a profile.
 
 ### Arriving at a heading: driving to a pose
 
@@ -584,6 +642,13 @@ lists what to do about what they find.)
 - **`measureWheelSize(48)`**: you push the robot exactly 48 inches by hand. If the library
   counted 47 inches, the wheels are really `48 / 47` times as big as the config says. A
   wrong `MOTOR_TO_WHEEL_GEAR_RATIO` shows up here too, as a wheel size that is way off.
+- **`measureTopSpeed()`**, only for the speed profile (section 3): full power forward until the
+  speed stops growing (less than 1% faster than 0.2 s before), then a gentle stop. The top speed
+  is the average of the last 0.1 s. The response time is how long it took to get 63% of the way
+  there: that is how a motor's response is usually counted, because after that long it gets 63% of
+  the way to *any* new speed. It notes the time of each reading rather than counting 10 ms per
+  loop, since a loop takes a little longer than its wait. It counts with the wheel size from
+  `measureWheelSize()` too.
 
 ---
 

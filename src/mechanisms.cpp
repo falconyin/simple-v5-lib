@@ -31,7 +31,7 @@ static int mechanismLoop() {
 // runs, too early to start a task
 static void startMechanismTask() {
     if (mechanism_task == nullptr) {
-        // Made with "new" so the task object is never destroyed, which keeps the task running
+        // The task keeps running in the background after this function returns
         mechanism_task = new task(mechanismLoop);
     }
 }

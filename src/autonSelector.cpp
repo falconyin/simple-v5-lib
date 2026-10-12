@@ -81,8 +81,8 @@ void startAutonSelector() {
     }
     selector_running = true;
     if (selector_task == nullptr) {
-        // Start selectorLoop in the background, only the first time. Made with "new" so the task
-        // object is never destroyed, which keeps the task running after this function returns.
+        // Start selectorLoop in the background, only the first time. The task keeps running after
+        // this function returns (and after its task object is gone, though this one is never deleted).
         selector_task = new task(selectorLoop);
     }
 }

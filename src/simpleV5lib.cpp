@@ -869,7 +869,7 @@ static void startMotion(const MotionRequest &request) {
         vexDelay(5);
     }
     if (motion_task == nullptr) {
-        // Made with "new" so the task object is never destroyed and the task keeps running
+        // The task keeps running in the background after this function returns
         motion_task = new task(motionLoop);
     }
     next_motion = request;

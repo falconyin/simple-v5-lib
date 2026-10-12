@@ -1223,6 +1223,78 @@ static void testTooManyMechanisms() {
     check("9th Intake: does nothing", sim::mech_cmd[PORT21] == 0 && sim::mech_mode[PORT21] == 0, sim::mech_cmd[PORT21], 0);
 }
 
+// A match, the way the field control system runs it: autonomous, disabled, driver control.
+// The VEX SDK stops the task running autonomous() when the mode changes, often in the middle of
+// a movement. The library's own tasks must keep running, so driver control still works.
+static bool auton_done = false;
+static int driver_loops = 0;
+static void matchAuton() {
+    intake.spin(100);
+    arm.moveTo(200);
+    PID_forward(120, 0.3, 0.2); // still driving when autonomous ends
+    auton_done = true;
+}
+static void matchDriver() {
+    cancelMovement(); // stop anything autonomous left running
+    while (true) {
+        arcadeDrive();
+        driver_loops++;
+        wait(20, msec);
+    }
+}
+
+static void testCompetitionModes() {
+    reset();
+    arm.resetPosition(0);
+    competition match;
+    match.autonomous(matchAuton);
+    match.drivercontrol(matchDriver);
+    check("competition: SDK defaults, stop only the mode's task", competition::bStopTasksBetweenModes
+          && !competition::bStopAllTasksBetweenModes, competition::bStopTasksBetweenModes, competition::bStopAllTasksBetweenModes);
+
+    int tasks_before = sim::taskCount();
+    double d0 = getPosition();
+    match.test_auton();
+    vexDelay(800);
+    check("  autonomous drives", isMoving() && getPosition() - d0 > 12, getPosition() - d0, isMoving());
+    match.test_disable();
+    vexDelay(10);
+    check("  disabled: the autonomous task is stopped", !sim::taskRunning((const void *)matchAuton)
+          && sim::taskCount() == tasks_before, sim::taskCount(), tasks_before);
+    check("  ... in the middle of its movement, which goes on", isMoving() && !auton_done, isMoving(), auton_done);
+
+    match.test_driver();
+    vexDelay(100);
+    check("driver control: starts, cancelMovement() returns", driver_loops > 0 && !isMoving(), driver_loops, isMoving());
+    vexDelay(500);
+    check("  the robot has stopped", fabs(sim::v[0]) < 1 && fabs(sim::v[1]) < 1, sim::v[0], sim::v[1]);
+    check("  the intake still runs autonomous's last command", sim::mech_v[INTAKE] > 0.9 * sim::MECH_MAXV * sim::real::battery / 12,
+          sim::mech_v[INTAKE], 0);
+    double y_before = getY(), true_y_before = sim::y;
+    Controller.Axis3.value = 50;
+    vexDelay(500);
+    check("  the stick drives, odometry follows", fabs(sim::cmd_in.cmd[0] - 25) < 0.5 && getY() - y_before > 4,
+          sim::cmd_in.cmd[0], getY() - y_before);
+    Controller.Axis3.value = 0;
+    vexDelay(600); // stopped: odometry is not a tick behind any more
+    // (only what odometry measured since driver control started: autonomous's hard stop may have slipped)
+    double measured = getY() - y_before, really = sim::y - true_y_before;
+    check("  odometry still follows the robot", fabs(measured - really) < (sim::isRealistic() ? 0.5 : 0.05), measured, really);
+    intake.stop();
+    arm.moveTo(100);
+    // (not waitUntilDone: if the library's task had been stopped, it would wait forever)
+    for (int i = 0; i < 200 && !arm.isDone(); i++) vexDelay(10);
+    check("  the arm still moves", arm.isDone() && fabs(arm.position() - 100) < ARM_TOLERANCE, arm.position(), 100);
+    arm.release();
+
+    match.test_disable();
+    int loops = driver_loops;
+    vexDelay(200);
+    check("disabled again: the driver task is stopped", driver_loops == loops && sim::taskCount() == tasks_before,
+          driver_loops, loops);
+    reset();
+}
+
 static void testCheckDevices() {
     settle();
     int rumbles = Controller.rumbles;
@@ -1344,6 +1416,7 @@ int main() {
     testArm();
     testIntake();
     testTooManyMechanisms();
+    testCompetitionModes();
     testCheckDevices();
     testTestDrivetrain();
     testMeasureTrackWidth();

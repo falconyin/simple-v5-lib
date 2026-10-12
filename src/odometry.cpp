@@ -96,7 +96,7 @@ void startOdometry() {
     if (TRACKING_SIDEWAYS_PORT >= 0) {
         sideways_wheel = new rotation(TRACKING_SIDEWAYS_PORT, TRACKING_SIDEWAYS_REVERSED);
     }
-    // Made with "new" so the task object is never destroyed and the task keeps running
+    // The task keeps running in the background after this function returns
     new task(odometryLoop);
 }
 

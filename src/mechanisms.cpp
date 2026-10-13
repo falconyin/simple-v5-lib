@@ -47,6 +47,10 @@ static double limitPower(double power, double max_power) {
 // The least power (percent) manual() keeps while easing into a limit (see Arm::update)
 const double LIMIT_CREEP_POWER = 20;
 
+// How long the motor's own controller (spinToPosition) gets to take an arm that counts as there the
+// last bit to its target. After that it holds wherever it is (see Arm::update).
+const double ARM_FINISH_MS = 500;
+
 // ============================================================================
 // Arm
 // ============================================================================
@@ -54,7 +58,7 @@ const double LIMIT_CREEP_POWER = 20;
 // What your code asked for
 enum { ARM_NO_COMMAND, ARM_MOVE, ARM_MANUAL, ARM_HOLD_HERE, ARM_RELEASE };
 // What the background task is doing
-enum { ARM_LOOSE, ARM_MOVING, ARM_HOLDING, ARM_DRIVEN };
+enum { ARM_LOOSE, ARM_MOVING, ARM_FINISHING, ARM_HOLDING, ARM_DRIVEN };
 
 Arm::Arm(motor &one_motor, double kp, double ki, double kd)
     : own_motors(one_motor), motors(&own_motors), pid(kp, ki, kd, ARM_INTEGRAL_RANGE) {
@@ -151,6 +155,11 @@ void Arm::setLimits(double low, double high) {
 
 void Arm::resetPosition(double degrees) {
     motors->setPosition(degrees, rotationUnits::deg);
+    if (last_command == ARM_MOVE) {
+        // The motor may still be driving to the moveTo's target (spinToPosition), a number it now
+        // counts from the new zero: it would drive the arm somewhere else. Hold right here instead.
+        send(ARM_HOLD_HERE);
+    }
 }
 
 double Arm::position() {
@@ -205,16 +214,35 @@ void Arm::update() {
         }
         bool there = settle_start >= 0 && now - settle_start >= ARM_SETTLE_MS;
         bool gave_up = now - start_time >= ARM_TIMEOUT_MS;
-        if (there || gave_up) {
-            // The motor's own hold mode keeps it here from now on, even with something heavy on it
+        if (there) {
+            // The motor's own controller takes over for the last bit: it drives to the target and
+            // holds it there, even with something heavy on it. (Holding where the arm is now,
+            // stop(hold), would leave an arm that is still moving when it gets close, or a heavy one
+            // going down, a few degrees further on.)
+            motors->setStopping(brakeType::hold);
+            motors->spinToPosition(target, rotationUnits::deg, max_speed, velocityUnits::pct, false);
+            state = ARM_FINISHING;
+            settle_start = now; // from now on: when the motor took over
+        } else if (gave_up) {
+            // Hold wherever it got to (stuck on something: driving on would only push against it)
             motors->stop(brakeType::hold);
             state = ARM_HOLDING;
+        }
+        if (there || gave_up) {
             arrived = there; // first, so it is ready once finished_request says this move is done
             finished_request = seen_request;
             return;
         }
         double rate = motors->velocity(velocityUnits::dps) / 100; // degrees per 10 ms
         spinMotors(*motors, limitPower(pid.compute(error, rate), max_speed));
+    } else if (state == ARM_FINISHING) {
+        if (now - settle_start >= ARM_FINISH_MS) {
+            // By now it is at the target, or it never will be: resting on the frame a little above
+            // it, say, or two motors of one lift whose readings drifted apart. Driving on would push
+            // against that for the rest of the match, so hold wherever it is now.
+            motors->stop(brakeType::hold);
+            state = ARM_HOLDING;
+        }
     } else if (state == ARM_DRIVEN) {
         double power = manual_power;
         int pushing = (power > 0) ? 1 : -1;

@@ -146,8 +146,8 @@ const double ARM_KD = 10;
 // Only add up the error (I) when closer than this many degrees. Bigger than the error that P alone
 // stops at when the arm is heavy, or I never starts.
 const double ARM_INTEGRAL_RANGE = 30;
-// Closer than this many degrees for ARM_SETTLE_MS counts as there: then the motor's hold mode
-// keeps the arm in place
+// Closer than this many degrees for ARM_SETTLE_MS counts as there: then the motor's own controller
+// takes the arm the last bit to the target, and holds it there
 const double ARM_TOLERANCE = 3;
 const double ARM_SETTLE_MS = 50;
 // If it isn't there after this long (stuck on something?), it gives up and holds where it is

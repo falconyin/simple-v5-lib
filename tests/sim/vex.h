@@ -96,6 +96,7 @@ inline int mech_mode[21] = {};        // 0 = voltage, 1 = coast, 2 = brake, 3 = 
 inline double mech_v[21] = {};        // deg/s
 inline double mech_pos[21] = {};      // deg
 inline double mech_hold_at[21] = {};  // where hold mode keeps it
+inline bool mech_holding_target[21] = {}; // hold mode from spinToPosition: keeps it at its target, not where it was
 inline double mech_load[21] = {};     // % of power pulling it towards smaller positions (gravity on a lift)
 inline bool mech_jammed[21] = {};     // something stops it from turning
 // The real world: things a real robot has that a perfect simulator doesn't. All off by default
@@ -176,7 +177,9 @@ inline const Readings &seen() {
 inline void forgetReadings() { readings.count = 0; }
 inline double distanceSeen(int port, const Readings &r) { return distanceSeenFrom(port, r.x, r.y, r.heading); }
 // Everything the program commanded, as it was at one moment
-struct Commands { double cmd[2]; int mode[2]; double mech_cmd[21]; int mech_mode[21]; };
+// mech_to: a spinToPosition (mode 3 with a target): mech_target degrees
+struct Commands { double cmd[2]; int mode[2]; double mech_cmd[21]; int mech_mode[21];
+                  int mech_to[21]; double mech_target[21]; };
 inline History<Commands> commands;
 inline Commands cmd_in; // what the program commands now; cmd/mode/mech_* are what the motors do
 // A side gets the average power of its three motors
@@ -216,7 +219,12 @@ inline void applyCommands(const Commands &c) {
     for (int s = 0; s < 2; s++) { cmd[s] = c.cmd[s]; mode[s] = c.mode[s]; }
     for (int p = FIRST_MECH_PORT; p < 21; p++) {
         mech_cmd[p] = c.mech_cmd[p];
-        if (c.mech_mode[p] == 3 && mech_mode[p] != 3) mech_hold_at[p] = mech_pos[p]; // hold where it is now
+        if (c.mech_mode[p] == 3 && c.mech_to[p]) { // spinToPosition: the motor drives to the target and holds it there
+            mech_hold_at[p] = c.mech_target[p];
+        } else if (c.mech_mode[p] == 3 && (mech_mode[p] != 3 || mech_holding_target[p])) {
+            mech_hold_at[p] = mech_pos[p]; // hold where it is now
+        }
+        mech_holding_target[p] = c.mech_mode[p] == 3 && c.mech_to[p];
         mech_mode[p] = c.mech_mode[p];
     }
 }
@@ -357,12 +365,22 @@ struct motor { int port;
     return u == velocityUnits::pct ? dps / (sim::MAXV / (sim::wheel_diam * M_PI) / RATIO * 360) * 100 : dps; }
   double current(currentUnits){ return mech() ? sim::seen().mech_current[port] : 0; }
   void stop(brakeType b){
-    if (mech()) sim::cmd_in.mech_mode[port] = b == brakeType::coast ? 1 : b == brakeType::brake ? 2 : 3;
+    if (mech()) { sim::cmd_in.mech_mode[port] = b == brakeType::coast ? 1 : b == brakeType::brake ? 2 : 3; sim::cmd_in.mech_to[port] = 0; }
     else sim::cmd_in.mode[side()] = b == brakeType::coast ? 1 : 2;
     sim::commanded(); }
+  void setStopping(brakeType){} // (the simulator's spinToPosition always ends holding)
+  // The motor's own controller drives it to an absolute position, and then holds it there: like hold
+  // mode, only at the target instead of where it is. Only for mechanisms, never waits. (velocity only
+  // limits how fast a real motor gets there, not how hard it holds: the simulator ignores it)
+  bool spinToPosition(double rotation, rotationUnits u, double velocity, velocityUnits, bool = true){
+    if (!mech()) return false;
+    sim::cmd_in.mech_mode[port] = 3; sim::cmd_in.mech_to[port] = 1;
+    sim::cmd_in.mech_target[port] = rotation * (u == rotationUnits::rev ? 360 : 1);
+    sim::commanded();
+    return false; }
   void spin(directionType, double mv, voltageUnits){
     double pct = fmax(-100, fmin(100, mv / 120));
-    if (mech()) { sim::cmd_in.mech_mode[port] = 0; sim::cmd_in.mech_cmd[port] = pct; }
+    if (mech()) { sim::cmd_in.mech_mode[port] = 0; sim::cmd_in.mech_cmd[port] = pct; sim::cmd_in.mech_to[port] = 0; }
     else { sim::cmd_in.mode[side()] = 0; sim::motor_cmd[port] = sign() * pct; sim::updateSide(side());
       sim::peak_cmd = fmax(sim::peak_cmd, fabs(pct)); }
     sim::commanded(); } };
@@ -373,7 +391,11 @@ struct motor_group { std::vector<motor*> m; template<class... M> motor_group(M&.
   void setPosition(double value, rotationUnits u){ for (motor *x : m) x->setPosition(value, u); }
   double velocity(velocityUnits u){ return m[0]->velocity(u); }
   double current(currentUnits u){ double sum = 0; for (motor *x : m) sum += x->current(u); return sum; }
-  void stop(brakeType b){ for (motor *x : m) x->stop(b); } void spin(directionType d, double x, voltageUnits u){ for (motor *mm : m) mm->spin(d, x, u); } };
+  void stop(brakeType b){ for (motor *x : m) x->stop(b); } void spin(directionType d, double x, voltageUnits u){ for (motor *mm : m) mm->spin(d, x, u); }
+  void setStopping(brakeType b){ for (motor *x : m) x->setStopping(b); }
+  bool spinToPosition(double r, rotationUnits u, double v, velocityUnits vu, bool wait = true){
+    for (motor *x : m) x->spinToPosition(r, u, v, vu, wait);
+    return false; } };
 struct rotation { int port; bool reversed;
   rotation(int p, bool r = false) : port(p), reversed(r) {}
   bool installed(){ return !sim::unplugged[port]; }

@@ -22,7 +22,10 @@ use odometry, poses, chains and wall resets, with measured simulator numbers suc
 mistake, and tables of time/overshoot/end error per gain), `docs/writing-autonomous.md` (putting a
 routine together, walking through `examples/autonomous` and its mirroring helpers) and
 `docs/troubleshooting.md` (symptom tables that quote the library's printed messages word for word:
-change a message, change the quote). Their pictures in `docs/images` are generated:
+change a message, change the quote) and `docs/mechanisms.md` (setting up and tuning an `Arm`, the
+intake jam check; its arm pictures and tables run the library's `Arm` with several gains on the
+realistic simulator, one `Arm` per gain set since an Arm keeps its gains, and its stuck-current table
+comes from the simulator's motor model, not a real motor). Their pictures in `docs/images` are generated:
 `docs/diagrams/diagrams.cpp` drives the library on the simulator, draws the paths as SVG (and the tuning
 graphs from every line `graphOnScreen` drew on the simulator's Brain screen), and prints the guides' numbers
 (`CXX=... docs/diagrams/make_diagrams.sh`). It `#include`s `examples/autonomous/main.cpp` (with its `main`
@@ -31,7 +34,7 @@ times follow the example. The picture's step labels and the points its numbers m
 copies of the example's coordinates (constants at the top of `autonomousExample`), and the guide's
 walk-through copies the routine: update both with the example.
 Rerun it after changing how point/pose driving, chaining,
-the PID or the turn/forward loops behave, a gain in the config, or `examples/autonomous`, look at the pictures, and compare the
+the PID or the turn/forward loops behave, `src/mechanisms.cpp` or the simulator's mechanism model, a gain in the config, or `examples/autonomous`, look at the pictures, and compare the
 printed numbers with the guides. Each number is a range over 10 runs started 0–9 ms apart: where a run starts between the
 library's 10 ms ticks can change a chained corner a lot, so a single run can't be trusted. The carrot
 in `pose-carrot.svg` comes from `poseCarrot()`, the part of `aimPoint` that is not `static` for this
@@ -79,7 +82,8 @@ The library only ever includes `"vex.h"`, which it never ships. Both builds supp
 - `tests/sim/vex.h` — a ~300-line drivetrain simulator standing in for the whole VEX SDK: motors with
   a first-order speed response, an inertial sensor derived from wheel speeds, rotation sensors as
   tracking wheels, distance sensors that measure to a 144-inch square of walls around (0, 0),
-  independent mechanism motors on ports 7–21 (a gravity `mech_load`, hold mode that pushes back,
+  independent mechanism motors on ports 7–21 (a gravity `mech_load`, hold mode that pushes back (to where it stopped, or to
+  a `spinToPosition` target: `sim::mech_holding_target`),
   `mech_jammed`, current draw from the power-vs-speed gap; ports 1–6 are always the drivetrain),
   simulated time (tests run far faster than real time), and cooperative "tasks" that are real threads
   but only switch inside `vexDelay`/`wait`; each remembers the function it was started with, so
@@ -247,7 +251,15 @@ register the object (max 8 of each); the first command lazily starts one shared 
 every object's `update()`. User-facing methods never touch the motors: they write atomics and bump a
 `request` counter, and `update()` starts the new command when the counter changes, so the task is the
 only motor writer. A command identical to the last one is ignored (driver loops repeat them every 20 ms).
-`Arm` moves with its own `PIDController`, then hands off to `brakeType::hold`; `manual(0)` only holds
+`Arm` moves with its own `PIDController`, then hands off to the motor: `spinToPosition(target)` with hold
+stopping (not `stop(hold)` straight away, which holds where it is: the arm counts as there while still moving, and a heavy
+one going down ended up to 4.7° past; a speed condition on "there" was tried and is worse, since `PIDController`
+drops its I when the arm crosses the target and the arm sinks), and `ARM_FINISH_MS` (500) later `stop(hold)` where it
+is (state `ARM_FINISHING`): driving to the target for good would push forever against a hard stop the arm can't quite
+reach, or two lift motors whose encoders drifted apart against each other (the simulator has neither). Its
+proportional hold sags twice (spinToPosition's, then stop(hold)'s): arms end 1.5° below the target under a 15%
+load, a simulator artifact the tests allow for. `resetPosition` after a
+`moveTo` sends a hold-here, since the spinToPosition target is in the old zero's degrees. A `moveTo` that gave up uses `stop(hold)`. `manual(0)` only holds
 after a manual command, so it doesn't cancel a running `moveTo`. `Intake` jam = per-motor current over
 `INTAKE_JAM_CURRENT` *and* speed under `INTAKE_JAM_SPEED`, for `INTAKE_JAM_MS`; each condition is
 covered by its own test.

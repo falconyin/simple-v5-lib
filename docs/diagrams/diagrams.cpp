@@ -5,6 +5,7 @@
 // The tuning graphs (docs/tuning.md) are what the Brain screen shows during a movement: every line
 // the library drew on the simulator's screen, and their numbers are printed too. The autonomous
 // picture (docs/writing-autonomous.md) is examples/autonomous's own routine, from both starting spots.
+// The arm and intake pictures (docs/mechanisms.md) are the library's Arm and Intake on the simulator.
 // Run docs/diagrams/make_diagrams.sh after changing how the robot drives, look at the pictures, and
 // compare the numbers with the guides.
 
@@ -837,6 +838,295 @@ static void speedProfileGuide(const std::string &folder) {
     sim::forgetReadings();
 }
 
+// ---------- The arm and intake pictures and numbers in docs/mechanisms.md ----------
+
+// A heavy arm: gravity pulls it down with this much of the motor's power (sim::mech_load), all the
+// way up (like a lift; a real arm's pull changes with its angle)
+const double ARM_LOAD = 15;
+
+// The gains mechanisms.md shows. An Arm keeps the gains it was made with, so each has an Arm of its
+// own, on a port of its own (the 36:1 cartridge an arm usually has).
+struct ArmCase {
+    const char *label;
+    double kp, ki, kd;
+    int port;
+};
+static ArmCase arm_cases[] = {
+    {"the config's gains", ARM_KP, ARM_KI, ARM_KD, PORT12},
+    {"kP 15", 15, ARM_KI, ARM_KD, PORT13},
+    {"kD 0", ARM_KP, ARM_KI, 0, PORT14},
+    {"kD 20", ARM_KP, ARM_KI, 20, PORT18},
+    {"kD 40", ARM_KP, ARM_KI, 40, PORT15},
+    {"kI 0", ARM_KP, 0, ARM_KD, PORT16},
+    {"kP 0.5", 0.5, ARM_KI, ARM_KD, PORT17},
+};
+const int ARM_CASES = sizeof(arm_cases) / sizeof(arm_cases[0]);
+#define CASE_MOTOR(i) motor(arm_cases[i].port, ratio36_1, false)
+static motor case_motors[ARM_CASES] = {CASE_MOTOR(0), CASE_MOTOR(1), CASE_MOTOR(2), CASE_MOTOR(3),
+                                       CASE_MOTOR(4), CASE_MOTOR(5), CASE_MOTOR(6)};
+#define CASE_ARM(i) Arm(case_motors[i], arm_cases[i].kp, arm_cases[i].ki, arm_cases[i].kd)
+static Arm case_arms[ARM_CASES] = {CASE_ARM(0), CASE_ARM(1), CASE_ARM(2), CASE_ARM(3), CASE_ARM(4), CASE_ARM(5), CASE_ARM(6)};
+
+// One moveTo: where the arm really was every 10 ms (the motor's degrees), until 0.8 s after it finished
+// (past the 0.5 s the motor takes the last bit, ARM_FINISH_MS in src/mechanisms.cpp, to where it holds)
+struct ArmTrace {
+    std::vector<double> positions;
+    double time_ms = 0;    // until isDone
+    double overshoot = 0;  // degrees past the target
+    double error = 0;      // target - where it ended, 0.8 s later (+ = short of it)
+    bool arrived = false;  // false: gave up after ARM_TIMEOUT_MS
+};
+static ArmTrace moveArm(int c, double from, double to, int start_ms, double max_speed = 100) {
+    Arm &arm = case_arms[c];
+    int port = arm_cases[c].port;
+    sim::mech_load[port] = ARM_LOAD;
+    // Put it exactly at from, held, so every run starts from where the table says (driving there
+    // with the case's gains could give up on the way). The simulated arm is where its motor says it
+    // is, so a new zero moves it there; the moveTo to where it now is only makes the Arm hold it.
+    arm.resetPosition(from);
+    arm.moveTo(from);
+    arm.waitUntilDone();
+    vexDelay(300 + start_ms);
+    ArmTrace t;
+    double start = sim::t_ms, direction = to > from ? 1 : -1;
+    arm.moveTo(to, max_speed);
+    if (arm.isDone()) {
+        // More Arms than MAX_MECHANISMS (the example's arm counts too): this one does nothing, and
+        // its numbers would look perfect
+        printf("Arm case '%s' isn't running: too many Arms?\n", arm_cases[c].label);
+        _exit(1);
+    }
+    while (!arm.isDone()) {
+        t.positions.push_back(sim::mech_pos[port]);
+        t.overshoot = fmax(t.overshoot, direction * (sim::mech_pos[port] - to));
+        vexDelay(10);
+    }
+    t.time_ms = sim::t_ms - start;
+    t.arrived = arm.waitUntilDone();
+    for (int i = 0; i < 80; i++) {
+        t.positions.push_back(sim::mech_pos[port]);
+        vexDelay(10);
+    }
+    t.error = direction * (to - sim::mech_pos[port]);
+    return t;
+}
+
+static std::string armResult(const ArmTrace &t) {
+    if (!t.arrived) return Picture::fmt("gave up after %.1f s, %.0f° short", t.time_ms / 1000, t.error);
+    return Picture::fmt("%.2f s, %.1f° past, ends %.1f° %s", t.time_ms / 1000, t.overshoot, fabs(t.error),
+                        t.error >= 0 ? "short" : "past");
+}
+
+// One moveTo with the config's gains (gray) and with case c's: degrees over time, near the target
+static void armPicture(const std::string &folder, const char *file, const char *title, int c, double from, double to) {
+    ArmTrace good = moveArm(0, from, to, 0), bad = moveArm(c, from, to, 0);
+    double low = to - 60, high = to + 30; // the last 60 degrees on the way, and 30 past
+    if (to < from) { low = to - 30; high = to + 60; }
+    // x: hundredths of a second (one per sample), 2.5 s; y: degrees
+    Picture p{0, low, 250, high, 2.4};
+    p.left = 56; p.top = 64; p.bottom = 46; p.right = 24;
+    for (double d = ceil(low / 10) * 10; d <= high; d += 10) {
+        p.line(0, d, 250, d, GRID, 1);
+        p.text(0, d, Picture::fmt("%g°", d), "end", INK_2, -6, 4, 11);
+    }
+    for (double s = 0; s <= 2.5; s += 0.5) {
+        p.line(s * 100, low, s * 100, low - 1.5, AXIS, 1);
+        p.text(s * 100, low, Picture::fmt("%g s", s), "middle", INK_2, 0, 18, 11);
+    }
+    // The target, and ARM_TOLERANCE around it: inside it for ARM_SETTLE_MS counts as there
+    p.add(Picture::fmt("<rect x='%.1f' y='%.1f' width='%.1f' height='%.1f' fill='%s' fill-opacity='0.12'/>", p.X(0),
+                       p.Y(to + ARM_TOLERANCE), 250 * p.scale, 2 * ARM_TOLERANCE * p.scale, AQUA));
+    p.line(0, to, 250, to, AQUA, 1.2, " stroke-dasharray='5 4'");
+    p.text(250, to, Picture::fmt("target %g°", to), "end", AQUA, 0, -6, 11);
+    p.line(ARM_TIMEOUT_MS / 10, low, ARM_TIMEOUT_MS / 10, high, AXIS, 1, " stroke-dasharray='2 4'");
+    p.text(ARM_TIMEOUT_MS / 10, high, "ARM_TIMEOUT_MS", "end", INK_2, -4, 12, 11);
+    // The arm's position, cut off at the picture's edges
+    p.add(Picture::fmt("<clipPath id='inside'><rect x='%.1f' y='%.1f' width='%.1f' height='%.1f'/></clipPath><g clip-path='url(#inside)'>",
+                       p.X(0), p.Y(high), 250 * p.scale, (high - low) * p.scale));
+    auto trace = [&](const ArmTrace &t, const char *color) {
+        std::vector<std::pair<double, double>> points;
+        for (size_t i = 0; i < t.positions.size(); i++) points.push_back({(double)i, t.positions[i]});
+        p.path(points, color);
+    };
+    trace(good, AXIS);
+    trace(bad, ORANGE);
+    p.add("</g>");
+    p.text(0, high, Picture::fmt("<tspan fill='%s' font-weight='600'>%s</tspan>: %s", ORANGE, arm_cases[c].label,
+                                 armResult(bad).c_str()), "start", INK, -50, -38, 12);
+    p.text(0, high, Picture::fmt("<tspan fill='%s' font-weight='600'>%s</tspan>: %s", INK_2, arm_cases[0].label,
+                                 armResult(good).c_str()), "start", INK, -50, -20, 12);
+    p.save(folder, file, title);
+}
+
+// The config's gains, all the way: up from 0 to 450, then down to 100
+static void armGoodPicture(const std::string &folder) {
+    ArmTrace up = moveArm(0, 0, 450, 0), down = moveArm(0, 450, 100, 0);
+    // x: hundredths of a second, y: degrees / 4 (so 0..480 degrees fits next to 3.5 s)
+    const double Q = 4;
+    double seconds = (up.positions.size() + down.positions.size()) / 100.0;
+    Picture p{0, 0, seconds * 100, 480 / Q, 2.2};
+    p.left = 56; p.top = 64; p.bottom = 46; p.right = 24;
+    for (double d = 0; d <= 480; d += 60) {
+        p.line(0, d / Q, seconds * 100, d / Q, GRID, 1);
+        p.text(0, d / Q, Picture::fmt("%g°", d), "end", INK_2, -6, 4, 11);
+    }
+    for (double s = 0; s <= seconds; s += 0.5) {
+        p.line(s * 100, 0, s * 100, -1.5, AXIS, 1);
+        p.text(s * 100, 0, Picture::fmt("%g s", s), "middle", INK_2, 0, 18, 11);
+    }
+    double switch_at = up.positions.size();
+    for (auto target : {std::make_pair(0.0, 450.0), std::make_pair(switch_at, 100.0)})
+        p.line(target.first, target.second / Q, target.first + (target.first ? seconds * 100 - switch_at : switch_at),
+               target.second / Q, AQUA, 1.2, " stroke-dasharray='5 4'");
+    std::vector<std::pair<double, double>> points;
+    for (size_t i = 0; i < up.positions.size(); i++) points.push_back({(double)i, up.positions[i] / Q});
+    for (size_t i = 0; i < down.positions.size(); i++) points.push_back({switch_at + i, down.positions[i] / Q});
+    p.path(points, ORANGE);
+    p.text(0, 480 / Q, Picture::fmt("<tspan fill='%s' font-weight='600'>moveTo(450)</tspan>: %s", ORANGE, armResult(up).c_str()),
+           "start", INK, -50, -38, 12);
+    p.text(0, 480 / Q, Picture::fmt("<tspan fill='%s' font-weight='600'>then moveTo(100)</tspan>: %s", ORANGE,
+                                    armResult(down).c_str()), "start", INK, -50, -20, 12);
+    p.save(folder, "arm-good.svg", "A heavy arm with the config's gains: moveTo(450), then moveTo(100)");
+}
+
+// One line of the table: case c's move from -> to, over STARTS runs
+static void armRow(const std::string &label, int c, double from, double to, double max_speed = 100) {
+    Range time, overshoot, error;
+    int gave_up = 0;
+    for (int start = 0; start < STARTS; start++) {
+        ArmTrace t = moveArm(c, from, to, start, max_speed);
+        time.add(t.time_ms / 1000);
+        overshoot.add(t.overshoot);
+        error.add(t.error);
+        if (!t.arrived) gave_up++;
+    }
+    printf("  %-20s %-4s %s s, %s° past, ends %s°%s\n", label.c_str(), to > from ? "up" : "down",
+           time.show("%.2f").c_str(), overshoot.show().c_str(), error.show().c_str(),
+           gave_up ? Picture::fmt(", gave up %d of %d", gave_up, STARTS).c_str() : "");
+}
+
+// The table: each case's moves up and down
+static void armNumbers(const char *robot) {
+    printf("\ndocs/mechanisms.md, the %s simulator: an arm with %.0f%% gravity, moveTo from 0 to 450 (up) and 450 to 100 (down)\n",
+           robot, ARM_LOAD);
+    printf("(ends: + = short of the target, - = past it; gave up = after ARM_TIMEOUT_MS)\n");
+    for (int c = 0; c < ARM_CASES; c++) {
+        armRow(arm_cases[c].label, c, 0, 450);
+        armRow(arm_cases[c].label, c, 450, 100);
+    }
+    // Going down slower: gravity carries it past less
+    for (double speed : {50.0, 30.0}) {
+        armRow(Picture::fmt("config, max_speed %g", speed), 0, 450, 100, speed);
+    }
+}
+
+// The intake: what the motor draws and how fast it turns while it starts up, pulls in a heavy piece,
+// and gets stuck. The jam check (src/mechanisms.cpp) looks at exactly these two readings.
+static void intakePicture(const std::string &folder) {
+    int port = intakeMotor.port;
+    struct Sample { double amps, speed; bool backing_off; };
+    std::vector<Sample> samples;
+    intake.spin(100);
+    for (int i = 0; i < 300; i++) {
+        double t = i * 10;
+        sim::mech_load[port] = (t >= 500 && t < 1000) ? 80 : 0; // a heavy piece, 0.5 to 1 s
+        sim::mech_jammed[port] = t >= 1300 && t < 2000;        // stuck, 1.3 to 2 s
+        samples.push_back({intakeMotor.current(currentUnits::amp), intakeMotor.velocity(velocityUnits::pct),
+                           sim::cmd_in.mech_cmd[port] < 0});
+        vexDelay(10);
+    }
+    intake.stop();
+    sim::mech_load[port] = 0;
+    sim::mech_jammed[port] = false;
+
+    // Two graphs above each other: current (amps) on top, speed (percent) below. x: hundredths of a second.
+    // y: the speed graph is -100..100 percent at 0..100, the current graph 0..2.5 A at 130..230.
+    auto speedY = [](double pct) { return 50 + pct / 2; };
+    auto ampsY = [](double amps) { return 130 + amps * 40; };
+    Picture p{0, 0, 300, 230, 2.2};
+    p.left = 62; p.top = 40; p.bottom = 46; p.right = 24;
+    // When it backed off (shaded), in both graphs
+    for (size_t i = 0; i < samples.size(); i++)
+        if (samples[i].backing_off)
+            p.add(Picture::fmt("<rect x='%.1f' y='%.1f' width='%.1f' height='%.1f' fill='%s' fill-opacity='0.12'/>", p.X(i),
+                               p.Y(230), p.scale, 230 * p.scale, ORANGE));
+    for (double a = 0; a <= 2.5; a += 0.5) {
+        p.line(0, ampsY(a), 300, ampsY(a), GRID, 1);
+        p.text(0, ampsY(a), Picture::fmt("%.1f A", a), "end", INK_2, -6, 4, 11);
+    }
+    for (double s = -100; s <= 100; s += 50) {
+        p.line(0, speedY(s), 300, speedY(s), s == 0 ? AXIS : GRID, 1);
+        p.text(0, speedY(s), Picture::fmt("%g%%", s), "end", INK_2, -6, 4, 11);
+    }
+    for (double s = 0; s <= 3; s += 0.5) {
+        p.line(s * 100, 0, s * 100, -1.5, AXIS, 1);
+        p.text(s * 100, 0, Picture::fmt("%g s", s), "middle", INK_2, 0, 18, 11);
+    }
+    // The jam limits: more current than this, and slower than this (either way)
+    p.line(0, ampsY(INTAKE_JAM_CURRENT), 300, ampsY(INTAKE_JAM_CURRENT), AQUA, 1.2, " stroke-dasharray='5 4'");
+    p.text(300, ampsY(INTAKE_JAM_CURRENT), "INTAKE_JAM_CURRENT", "end", AQUA, 0, -5, 11);
+    for (double s : {INTAKE_JAM_SPEED, -INTAKE_JAM_SPEED})
+        p.line(0, speedY(s), 300, speedY(s), AQUA, 1.2, " stroke-dasharray='5 4'");
+    p.text(300, speedY(INTAKE_JAM_SPEED), "INTAKE_JAM_SPEED", "end", AQUA, 0, -5, 11);
+    std::vector<std::pair<double, double>> amps, speed;
+    for (size_t i = 0; i < samples.size(); i++) {
+        amps.push_back({(double)i, ampsY(samples[i].amps)});
+        speed.push_back({(double)i, speedY(samples[i].speed)});
+    }
+    p.path(amps, BLUE);
+    p.path(speed, BLUE);
+    p.text(0, 230, "current, per motor", "start", INK_2, -56, -22, 11);
+    p.text(0, 100, "speed", "start", INK_2, -56, -8, 11);
+    // What happens when, between the two graphs (the shading: backing off to free it)
+    p.text(25, 115, "starting up", "middle", INK, 0, 4, 12);
+    p.text(75, 115, "a heavy piece", "middle", INK, 0, 4, 12);
+    p.text(165, 115, "stuck: backs off, tries again", "middle", INK, 0, 4, 12);
+    p.text(255, 115, "free again", "middle", INK, 0, 4, 12);
+    p.save(folder, "intake-jam.svg", "An intake starting up, pulling in a heavy piece, and getting stuck: its current and speed");
+}
+
+// The intake's numbers: what a stuck motor draws at a few powers, and when a jam is noticed
+static void intakeNumbers() {
+    int port = intakeMotor.port;
+    printf("\ndocs/mechanisms.md: a stuck intake motor in the simulator\n");
+    for (double power : {100.0, 75.0, 50.0, 25.0}) {
+        intake.spin(power);
+        vexDelay(500);
+        sim::mech_jammed[port] = true;
+        double stuck_at = sim::t_ms, noticed = -1;
+        int jams = intake.jamCount();
+        while (sim::t_ms - stuck_at < 1000) {
+            if (noticed < 0 && intake.jamCount() > jams) noticed = sim::t_ms - stuck_at;
+            vexDelay(10);
+        }
+        double amps = intakeMotor.current(currentUnits::amp);
+        if (sim::cmd_in.mech_cmd[port] < 0) { vexDelay(INTAKE_UNJAM_MS); amps = intakeMotor.current(currentUnits::amp); }
+        printf("  spin(%3.0f): stuck, draws %.2f A: %s\n", power, amps,
+               noticed < 0 ? "not noticed" : Picture::fmt("noticed after %.0f ms", noticed).c_str());
+        sim::mech_jammed[port] = false;
+        intake.stop();
+        vexDelay(300);
+    }
+}
+
+static void mechanismsGuide(const std::string &folder) {
+    // The realistic simulator: its late readings are what make an arm swing (the perfect one forgives
+    // a lot, see the numbers)
+    sim::realistic(true);
+    sim::forgetReadings();
+    armGoodPicture(folder);
+    armPicture(folder, "arm-kp-too-big.svg", "An arm moving up to 450° with kP 15: swings around the target", 1, 0, 450);
+    armPicture(folder, "arm-kd-zero.svg", "An arm moving down to 100° with kD 0: gravity carries it past", 2, 450, 100);
+    armPicture(folder, "arm-ki-zero.svg", "A heavy arm moving up to 450° with kI 0: stops short", 5, 0, 450);
+    armPicture(folder, "arm-integral-range.svg", "A heavy arm with kP 0.5: stops further short than ARM_INTEGRAL_RANGE", 6, 0, 450);
+    armNumbers("realistic");
+    sim::realistic(false);
+    sim::forgetReadings();
+    armNumbers("perfect");
+    intakePicture(folder);
+    intakeNumbers();
+}
+
 int main(int argc, char **argv) {
     std::string folder = argc > 1 ? argv[1] : "docs/images";
     calibrateInertial();
@@ -852,6 +1142,7 @@ int main(int argc, char **argv) {
     tuningNumbers();
     autonomousExample(folder);
     speedProfileGuide(folder);
+    mechanismsGuide(folder);
     fflush(stdout);
     _exit(0); // the library's background tasks never end
 }

@@ -759,10 +759,13 @@ static void testSpeedProfile() {
         with_ki[i] = lastMovementResult();
     }
     forwardGains.ki = FORWARD_KI;
-    double ki_ms_off = sim::isRealistic() ? 120 : 20;
+    // Only the perfect runs check the time. On the realistic ones it depends on where the noise is
+    // while the robot settles: -90 to 310 ms over 10 starts, with or without I, and still -80 to
+    // 590 ms with both runs starting from the same noise, since a little difference at the end moves
+    // the noise on differently. The overshoot doesn't (0.03 to 0.04 more, with I 0.15 to 0.17).
+    bool ki_same_time = sim::isRealistic() || fabs(with_ki[1].time_ms - with_ki[0].time_ms) < 20;
     double ki_overshoot_off = sim::isRealistic() ? 0.08 : 0.02;
-    check("  no I while following the ghost: a big kI changes little",
-          fabs(with_ki[1].time_ms - with_ki[0].time_ms) < ki_ms_off
+    check("  no I while following the ghost: a big kI changes little", ki_same_time
           && with_ki[1].overshoot < with_ki[0].overshoot + ki_overshoot_off, with_ki[1].time_ms - with_ki[0].time_ms,
           with_ki[1].overshoot - with_ki[0].overshoot);
 
@@ -1233,6 +1236,26 @@ static void testArm() {
     while (!arm.isDone()) { lowest_seen = fmin(lowest_seen, arm.position()); vexDelay(5); }
     check("arm: moveTo 50, gravity helping", fabs(arm.position() - 50) < ARM_TOLERANCE, arm.position(), 50);
     check("  overshoot under 10 degrees", 50 - lowest_seen < 10, 50 - lowest_seen, 10);
+    // It counts as there while it still moves down: the motor's own controller (spinToPosition) takes
+    // it the rest of the way. Holding where it was (stop(hold)) ended about 4 degrees past.
+    check("  the motor's spinToPosition takes over", sim::cmd_in.mech_mode[ARM] == 3 && sim::cmd_in.mech_to[ARM],
+          sim::cmd_in.mech_mode[ARM], sim::cmd_in.mech_to[ARM]);
+    // ... for ARM_FINISH_MS (500), then it holds where it is: by then that is the target. (The
+    // simulated hold sags 0.75 degrees under this load, below the target and then again below where
+    // stop(hold) caught it.)
+    vexDelay(700);
+    check("  then held at the target, not further down", fabs(sim::mech_pos[ARM] - 50) < 2
+          && sim::cmd_in.mech_mode[ARM] == 3 && !sim::cmd_in.mech_to[ARM], sim::mech_pos[ARM], sim::cmd_in.mech_to[ARM]);
+    // A new zero right after a moveTo, while the motor may still drive to the moveTo's target: that
+    // target counts from the new zero now, so the arm must hold where it is instead of going there.
+    arm.moveTo(120);
+    arm.waitUntilDone();
+    double before_reset = arm.position();
+    arm.resetPosition(0);
+    vexDelay(1000);
+    // (the simulated arm counts from the new zero too: still near 0 means it didn't move)
+    check("arm: resetPosition right after a moveTo: stays put", fabs(arm.position()) < 3, arm.position(), 0);
+    arm.resetPosition(before_reset + arm.position()); // back to the old numbers for the rest of the test
 
     arm.moveTo(150, 30);
     double fastest = 0;
@@ -1292,7 +1315,9 @@ static void testArm() {
     arrived = arm.waitUntilDone();
     check("arm: stuck -> waitUntilDone false after ARM_TIMEOUT_MS", !arrived
           && fabs(sim::t_ms - t_start - ARM_TIMEOUT_MS) < 50, sim::t_ms - t_start, ARM_TIMEOUT_MS);
-    check("  then holds where it is", sim::cmd_in.mech_mode[ARM] == 3, sim::cmd_in.mech_mode[ARM], 3);
+    // (where it is: driving on to the target would only push against what blocks it)
+    check("  then holds where it is", sim::cmd_in.mech_mode[ARM] == 3 && !sim::cmd_in.mech_to[ARM],
+          sim::cmd_in.mech_mode[ARM], sim::cmd_in.mech_to[ARM]);
     sim::mech_jammed[ARM] = false;
     // The same moveTo again (a driver loop repeats it) is not ignored: it gave up, so it tries again
     arm.moveTo(300);

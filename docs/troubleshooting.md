@@ -97,11 +97,12 @@ messages are quoted here the way the library prints them.
 | The terminal says `Only 8 Arms can be used: this one does nothing` (or Intakes) | More than 8 of one kind | Combine motors that always move together into one `motor_group` |
 | The arm goes to the wrong place | Positions are degrees of the motor, counted from where it was when the program started | `arm.resetPosition(0)` in `pre_auton` with the arm all the way down, then read your positions off `arm.position()` |
 | The arm stops at a limit instead of where `moveTo` sends it | `setLimits`: a `moveTo` past a limit goes to the limit | Check the limits, set after `resetPosition` |
-| The arm swings past its position, or creeps there | `ARM_KP` / `ARM_KD` | Tune them like a turn ([checklist, step 11](first-robot-checklist.md#11-arm-and-intake)) |
-| A heavy arm stops a little short | P alone can't hold the weight up there | A little `ARM_KI`, and `ARM_INTEGRAL_RANGE` bigger than how far short it stops |
+| The arm swings past its position, or creeps there | `ARM_KP` / `ARM_KD` | Tune them like a turn ([Arms and intakes, section 4](mechanisms.md#4-tuning-the-arm) shows each mistake) |
+| A heavy arm stops a little short | P alone can't hold the weight up there | A little `ARM_KI`, and `ARM_INTEGRAL_RANGE` bigger than how far short it stops ([Arms and intakes, section 4](mechanisms.md#ki-only-for-a-heavy-arm-that-stops-short)) |
+| An arm motor gets hot while the arm only sits there | It pushes against something: the frame below its lowest position, or the other motor of a lift | Print `armMotor.current(amp)` while it is held ([checklist, step 11](first-robot-checklist.md#11-arm-and-intake)); the library holds where the arm is half a second after a `moveTo` gets there, so if it is still high, please report it ([Arms and intakes, section 5](mechanisms.md#5-holding)) |
 | The arm never finishes, `arm.waitUntilDone()` returns false | It's stuck, or can't get within `ARM_TOLERANCE` in `ARM_TIMEOUT_MS` | Look for what blocks it; then tune |
 | The intake runs backwards now and then with nothing stuck | A normal game piece draws more than `INTAKE_JAM_CURRENT` | Measure the current (print `intakeMotor.current(amp)`) and set it between normal and stuck ([checklist, step 11](first-robot-checklist.md#11-arm-and-intake)) |
-| A stuck intake isn't noticed | `INTAKE_JAM_CURRENT` too high, or the intake runs at low power (it can't draw that much) | Lower it, between normal and stuck |
+| A stuck intake isn't noticed | `INTAKE_JAM_CURRENT` too high, or the intake runs at low power (it can't draw that much) | Lower it, between normal and stuck ([Arms and intakes, section 6](mechanisms.md#6-the-intake-noticing-a-jam)) |
 | `isJammed()` is hardly ever true | With unjam on, it is only true while the intake backs off (`INTAKE_UNJAM_MS`) | To know a piece is all the way in, spin with unjam off: `intake.spin(100, false)`, then it stays jammed until `stop()` |
 
 ## 7. SD card

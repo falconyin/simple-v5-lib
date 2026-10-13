@@ -234,7 +234,9 @@ intake. Run `examples/mechanisms` with your motor ports.
   number. A V5 motor draws at most 2.5 A.
 - [ ] Stuck: `isJammed()` turns true and `jamCount()` goes up. A normal game piece: it doesn't.
 
-([How it works, section 11](how-it-works.md#11-mechanisms-an-arm-that-holds-an-intake-that-unjams))
+([Arms and intakes](mechanisms.md) shows what each tuning mistake looks like, and how to measure
+the intake's current; [How it works, section 11](how-it-works.md#11-mechanisms-an-arm-that-holds-an-intake-that-unjams)
+explains the code.)
 
 ## 12. SD card
 

@@ -22,7 +22,10 @@ use odometry, poses, chains and wall resets, with measured simulator numbers suc
 mistake, and tables of time/overshoot/end error per gain), `docs/writing-autonomous.md` (putting a
 routine together, walking through `examples/autonomous` and its mirroring helpers) and
 `docs/troubleshooting.md` (symptom tables that quote the library's printed messages word for word:
-change a message, change the quote). Their pictures in `docs/images` are generated:
+change a message, change the quote) and `docs/mechanisms.md` (setting up and tuning an `Arm`, the
+intake jam check; its arm pictures and tables run the library's `Arm` with several gains on the
+realistic simulator, one `Arm` per gain set since an Arm keeps its gains, and its stuck-current table
+comes from the simulator's motor model, not a real motor). Their pictures in `docs/images` are generated:
 `docs/diagrams/diagrams.cpp` drives the library on the simulator, draws the paths as SVG (and the tuning
 graphs from every line `graphOnScreen` drew on the simulator's Brain screen), and prints the guides' numbers
 (`CXX=... docs/diagrams/make_diagrams.sh`). It `#include`s `examples/autonomous/main.cpp` (with its `main`
@@ -31,7 +34,7 @@ times follow the example. The picture's step labels and the points its numbers m
 copies of the example's coordinates (constants at the top of `autonomousExample`), and the guide's
 walk-through copies the routine: update both with the example.
 Rerun it after changing how point/pose driving, chaining,
-the PID or the turn/forward loops behave, a gain in the config, or `examples/autonomous`, look at the pictures, and compare the
+the PID or the turn/forward loops behave, `src/mechanisms.cpp` or the simulator's mechanism model, a gain in the config, or `examples/autonomous`, look at the pictures, and compare the
 printed numbers with the guides. Each number is a range over 10 runs started 0–9 ms apart: where a run starts between the
 library's 10 ms ticks can change a chained corner a lot, so a single run can't be trusted. The carrot
 in `pose-carrot.svg` comes from `poseCarrot()`, the part of `aimPoint` that is not `static` for this

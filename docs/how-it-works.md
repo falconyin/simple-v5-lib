@@ -654,7 +654,8 @@ lists what to do about what they find.)
 
 ## 11. Mechanisms: an arm that holds, an intake that unjams
 
-Code: `src/mechanisms.cpp`. Example: `examples/mechanisms`.
+Code: `src/mechanisms.cpp`. Example: `examples/mechanisms`. How to set them up and tune them, with
+pictures: [Arms and intakes](mechanisms.md).
 
 ### One background task for all of them
 

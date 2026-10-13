@@ -23,6 +23,7 @@ The guides in `docs`:
 * [Tuning the PID](docs/tuning.md): what the Brain screen graph shows, and which gain to change.
 * [Odometry and paths](docs/odometry-and-paths.md): driving to points and poses, chaining them, and correcting the position from a wall.
 * [Writing autonomous](docs/writing-autonomous.md): putting movements together into a routine, one routine for both starting spots, and testing it.
+* [Arms and intakes](docs/mechanisms.md): setting up an `Arm` and an `Intake`, tuning the arm, and making the intake notice a jam.
 * [Troubleshooting](docs/troubleshooting.md): what you see, the most likely cause, and what to do.
 
 ## What's Included
@@ -31,7 +32,7 @@ The guides in `docs`:
 * **Odometry:** the robot keeps track of where it is on the field (x, y in inches), and `PID_drive_to_point` / `PID_turn_to_point` drive to field points. `PID_drive_to_pose` gets to a point *and* arrives facing a heading, in one curve. Works with just the drive motors and inertial sensor; tracking wheels are optional. Correct the position against a wall, by touching it (`setX` / `setY`) or with a distance sensor (`resetXFromWall` / `resetYFromWall`). [Odometry and paths](docs/odometry-and-paths.md) shows how to use all of it, with pictures.
 * **Chained movements:** `PID_forward_chain` and friends move on to the next movement without stopping, for faster routes. `PID_drive_to_point_chain` turns a list of field points into one smooth path.
 * **Do things while driving:** every movement has an `_async` version, so you can run an intake or lift while the robot drives.
-* **Mechanisms:** an `Arm` (or lift) that moves to a position and holds it there, with a joystick in driver control too, and an `Intake` that notices when it jams (the motor draws a lot of current but can't turn) and runs backwards a moment to free it.
+* **Mechanisms:** an `Arm` (or lift) that moves to a position and holds it there, with a joystick in driver control too, and an `Intake` that notices when it jams (the motor draws a lot of current but can't turn) and runs backwards a moment to free it. [Arms and intakes](docs/mechanisms.md) shows how to set them up and tune them.
 * **Live data for tuning:** watch the error and power as a graph on the Brain screen, or as numbers in the terminal. The [tuning guide](docs/tuning.md) shows what the graph looks like for each kind of mistake, and which gain fixes it.
 * **Tuning from the controller:** `tuneWithController()` changes kP, kI and kD with the controller buttons and tries them right away, no re-downloading. The gains are saved on the SD card, and `loadGainsFromSDCard()` brings them back in the next run.
 * **SD card logging:** `logToSDCard(true)` saves every movement's data in a CSV file, to look at after a match.

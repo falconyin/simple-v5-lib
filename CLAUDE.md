@@ -252,9 +252,14 @@ every object's `update()`. User-facing methods never touch the motors: they writ
 `request` counter, and `update()` starts the new command when the counter changes, so the task is the
 only motor writer. A command identical to the last one is ignored (driver loops repeat them every 20 ms).
 `Arm` moves with its own `PIDController`, then hands off to the motor: `spinToPosition(target)` with hold
-stopping (not `stop(hold)`, which holds where it is: the arm counts as there while still moving, and a heavy
+stopping (not `stop(hold)` straight away, which holds where it is: the arm counts as there while still moving, and a heavy
 one going down ended up to 4.7° past; a speed condition on "there" was tried and is worse, since `PIDController`
-drops its I when the arm crosses the target and the arm sinks). A `moveTo` that gave up uses `stop(hold)`. `manual(0)` only holds
+drops its I when the arm crosses the target and the arm sinks), and `ARM_FINISH_MS` (500) later `stop(hold)` where it
+is (state `ARM_FINISHING`): driving to the target for good would push forever against a hard stop the arm can't quite
+reach, or two lift motors whose encoders drifted apart against each other (the simulator has neither). Its
+proportional hold sags twice (spinToPosition's, then stop(hold)'s): arms end 1.5° below the target under a 15%
+load, a simulator artifact the tests allow for. `resetPosition` after a
+`moveTo` sends a hold-here, since the spinToPosition target is in the old zero's degrees. A `moveTo` that gave up uses `stop(hold)`. `manual(0)` only holds
 after a manual command, so it doesn't cancel a running `moveTo`. `Intake` jam = per-motor current over
 `INTAKE_JAM_CURRENT` *and* speed under `INTAKE_JAM_SPEED`, for `INTAKE_JAM_MS`; each condition is
 covered by its own test.

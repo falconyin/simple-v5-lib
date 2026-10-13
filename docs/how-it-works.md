@@ -683,14 +683,25 @@ stays within `ARM_TOLERANCE` for `ARM_SETTLE_MS`, like section 2.
 
 Then it hands the arm to the motor: `spinToPosition(target)`, with the stopping mode set to
 `brakeType::hold`. The motor runs its own position control, inside the motor: it takes the arm
-the last bit to the target and keeps it there, pushing back whenever something moves it away.
-That is what keeps a heavy arm up, and it costs nothing to tune. (Why to the target, and not
-`stop(hold)` where the arm is: it counts as there while it may still be moving, and a heavy arm
-going down is still falling when it gets inside the tolerance. Held where it was then, it ended a
-few degrees further on.) If the arm doesn't get there within `ARM_TIMEOUT_MS` (stuck on
+the last bit to the target. (Why to the target, and not `stop(hold)` where the arm is: it counts
+as there while it may still be moving, and a heavy arm going down is still falling when it gets
+inside the tolerance. Held where it was then, it ended a few degrees further on.)
+
+Half a second later (`ARM_FINISH_MS` in `src/mechanisms.cpp`) it switches to `stop(hold)`: hold
+right where it is now, which by then is the target. The motor's hold pushes back whenever
+something moves the arm away; that is what keeps a heavy arm up, and it costs nothing to tune.
+Why not keep driving to the target for good? Sometimes the arm can't get exactly there: it rests on
+the frame a degree above the target, or the two motors of a lift read a few degrees apart and each
+drives to its own idea of the target, against the other. Driving on would push for the rest of
+the match. Holding where it is pushes only when something moves it.
+
+If the arm doesn't get there within `ARM_TIMEOUT_MS` (stuck on
 something), it holds wherever it got to (`stop(hold)`: pushing on to the target would only push
 against what blocks it), and `waitUntilDone()` returns false. The same `moveTo` again is then not ignored like other repeats: it isn't there,
 so it tries again.
+
+`resetPosition` after a `moveTo` also switches to holding where it is: the motor may still be
+driving to the target, a number it now counts from the new zero.
 
 Gravity is the hard part of moving an arm. While going down, gravity helps, and P alone stops
 where its push up is just as strong as gravity: below the target, by `gravity / kP` degrees.

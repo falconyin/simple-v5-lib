@@ -226,8 +226,13 @@ intake. Run `examples/mechanisms` with your motor ports.
 
 - [ ] `arm.moveTo(...)` gets there without swinging past it. Tune `ARM_KP` and `ARM_KD` like a turn.
 - [ ] Once there, the arm ends **at** its position (print `arm.position()` a second later): the
-  motor's own controller (`spinToPosition`) takes it the last bit and holds it there. Most of all a
-  heavy arm going down: it should not end a few degrees further down.
+  motor's own controller (`spinToPosition`) takes it the last bit, and half a second later it holds
+  where it is. Most of all a heavy arm going down: it should not end a few degrees further down.
+  Still moving after that half second? Make `ARM_FINISH_MS` in `src/mechanisms.cpp` longer.
+- [ ] Once held, the motor doesn't keep pushing: print `armMotor.current(amp)` a second after a
+  `moveTo`, most of all after `moveTo(0)` with the arm resting on the frame. It should be small (a
+  heavy arm needs some to stay up), not near 2.5 A. With two motors on one lift, check each motor,
+  after several moves up and down.
 - [ ] Once there, the arm holds its position. Push it down gently by hand and let go: it should
   push back to where it was. Then move it back and forth between two positions several times
   (and with `manual`, letting go of the stick each time), and check it still holds after each.
@@ -278,6 +283,9 @@ Plug a competition switch into the controller and run `examples/mechanisms` with
 - [ ] Again, but stay disabled for 5 seconds, with the arm still on its way when autonomous ends: in
   driver control its button moves it again. Odometry (on the Brain screen, as in step 4) still matches
   where the robot is, including how far it rolled after autonomous ended.
+- [ ] Raise the arm with a `moveTo` in autonomous, let it get there, and switch to disabled for a
+  few seconds (a heavy arm sags), then to driver control: the arm should stay where it is or go
+  back up gently, not jump. If it jumps, please report it.
 - [ ] Again, with `Competition.bStopAllTasksBetweenModes = true;` as the first line of `main()`:
   the same.
 - [ ] With that line still in, run the program before plugging in the competition switch, and plug
@@ -319,7 +327,9 @@ with what you saw.
 | How hard the wheels can push before slipping | step 8 | best `DRIVE_SLIP_LIMIT` far from 40 |
 | How late a distance sensor reads | step 10 | worse results right after moving |
 | A motor's hold mode after several stops in a row | step 11 | the arm sags after a few moves |
-| A motor's `spinToPosition` ends holding its target (the simulator's holds like hold mode) | step 11 | the arm ends past its position, or goes loose after a move |
+| A motor's `spinToPosition` gets the arm to its target within `ARM_FINISH_MS` (half a second) | step 11 | the arm ends past its position, or goes loose after a move |
+| A held arm resting on the frame, or a two-motor lift, doesn't push against itself | step 11 | an arm motor draws a lot of current and gets hot while held |
+| Where a held arm goes after being disabled (the simulator's holds where it sagged to) | step 13 | the arm jumps after the robot is enabled again |
 | How long an SD card write takes | step 12 | a movement after a pause starts late |
 | Which tasks a change of competition mode stops | step 13 | the robot drives on by itself in driver control, or the arm or intake doesn't answer |
 | A motor picks up its last command again after being disabled | step 13 | the intake autonomous left spinning stands still in driver control |

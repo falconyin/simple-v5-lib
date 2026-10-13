@@ -482,7 +482,7 @@ public:
     Arm(motor_group &motors, double kp = ARM_KP, double ki = ARM_KI, double kd = ARM_KD);
 
     // Move to this position and stay there: once it is close, the motor's own controller takes it the
-    // last bit (spinToPosition) and holds it there.
+    // last bit (spinToPosition, for half a second), then holds it where it is.
     // Returns right away. Calling it again with the same position does nothing, so it is fine to
     // call it every time through the driver control loop while a button is pressed. Only after it
     // gave up (ARM_TIMEOUT_MS, see waitUntilDone) does the same position try again.
@@ -504,7 +504,8 @@ public:
     void setLimits(double lowest, double highest);
 
     // "The arm is at this position now", for example at the start with the arm resting all the
-    // way down: resetPosition(0). Call it while the arm is not moving.
+    // way down: resetPosition(0). Call it while the arm is not moving. After a moveTo, the arm then
+    // holds right where it is (the moveTo's target counted from the old zero).
     void resetPosition(double degrees = 0);
 
     double position(); // degrees

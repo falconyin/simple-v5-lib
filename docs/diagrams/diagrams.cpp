@@ -867,12 +867,13 @@ static motor case_motors[ARM_CASES] = {CASE_MOTOR(0), CASE_MOTOR(1), CASE_MOTOR(
 #define CASE_ARM(i) Arm(case_motors[i], arm_cases[i].kp, arm_cases[i].ki, arm_cases[i].kd)
 static Arm case_arms[ARM_CASES] = {CASE_ARM(0), CASE_ARM(1), CASE_ARM(2), CASE_ARM(3), CASE_ARM(4), CASE_ARM(5), CASE_ARM(6)};
 
-// One moveTo: where the arm really was every 10 ms (the motor's degrees), until 0.3 s after it finished
+// One moveTo: where the arm really was every 10 ms (the motor's degrees), until 0.8 s after it finished
+// (past the 0.5 s the motor takes the last bit, ARM_FINISH_MS in src/mechanisms.cpp, to where it holds)
 struct ArmTrace {
     std::vector<double> positions;
     double time_ms = 0;    // until isDone
     double overshoot = 0;  // degrees past the target
-    double error = 0;      // target - where it ended, 0.3 s later (+ = short of it)
+    double error = 0;      // target - where it ended, 0.8 s later (+ = short of it)
     bool arrived = false;  // false: gave up after ARM_TIMEOUT_MS
 };
 static ArmTrace moveArm(int c, double from, double to, int start_ms, double max_speed = 100) {
@@ -881,10 +882,20 @@ static ArmTrace moveArm(int c, double from, double to, int start_ms, double max_
     sim::mech_load[port] = ARM_LOAD;
     arm.moveTo(from);
     arm.waitUntilDone();
+    // Some gains give up short of it, or swinging: put it exactly at from, so every run starts from
+    // where the table says. (The simulated arm is where its motor says it is, so a new zero moves it
+    // there; the Arm then holds it.)
+    arm.resetPosition(from);
     vexDelay(300 + start_ms);
     ArmTrace t;
     double start = sim::t_ms, direction = to > from ? 1 : -1;
     arm.moveTo(to, max_speed);
+    if (arm.isDone()) {
+        // More Arms than MAX_MECHANISMS (the example's arm counts too): this one does nothing, and
+        // its numbers would look perfect
+        printf("Arm case '%s' isn't running: too many Arms?\n", arm_cases[c].label);
+        _exit(1);
+    }
     while (!arm.isDone()) {
         t.positions.push_back(sim::mech_pos[port]);
         t.overshoot = fmax(t.overshoot, direction * (sim::mech_pos[port] - to));
@@ -892,7 +903,7 @@ static ArmTrace moveArm(int c, double from, double to, int start_ms, double max_
     }
     t.time_ms = sim::t_ms - start;
     t.arrived = arm.waitUntilDone();
-    for (int i = 0; i < 30; i++) {
+    for (int i = 0; i < 80; i++) {
         t.positions.push_back(sim::mech_pos[port]);
         vexDelay(10);
     }

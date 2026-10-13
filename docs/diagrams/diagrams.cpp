@@ -1002,14 +1002,17 @@ static void armNumbers(const char *robot) {
     // Going down slower: gravity carries it past less
     for (double speed : {50.0, 30.0}) {
         Range time, overshoot, error;
+        int gave_up = 0;
         for (int start = 0; start < STARTS; start++) {
             ArmTrace t = moveArm(0, 450, 100, start, speed);
             time.add(t.time_ms / 1000);
             overshoot.add(t.overshoot);
             error.add(t.error);
+            if (!t.arrived) gave_up++;
         }
-        printf("  %-20s %-4s %s s, %s° past, ends %s°\n", Picture::fmt("config, max_speed %g", speed).c_str(), "down",
-               time.show("%.2f").c_str(), overshoot.show().c_str(), error.show().c_str());
+        printf("  %-20s %-4s %s s, %s° past, ends %s°%s\n", Picture::fmt("config, max_speed %g", speed).c_str(), "down",
+               time.show("%.2f").c_str(), overshoot.show().c_str(), error.show().c_str(),
+               gave_up ? Picture::fmt(", gave up %d of %d", gave_up, STARTS).c_str() : "");
     }
 }
 

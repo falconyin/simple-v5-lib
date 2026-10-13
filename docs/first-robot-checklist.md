@@ -225,6 +225,9 @@ measured from the robot's center, to the front of the sensor.
 intake. Run `examples/mechanisms` with your motor ports.
 
 - [ ] `arm.moveTo(...)` gets there without swinging past it. Tune `ARM_KP` and `ARM_KD` like a turn.
+- [ ] Once there, the arm ends **at** its position (print `arm.position()` a second later): the
+  motor's own controller (`spinToPosition`) takes it the last bit and holds it there. Most of all a
+  heavy arm going down: it should not end a few degrees further down.
 - [ ] Once there, the arm holds its position. Push it down gently by hand and let go: it should
   push back to where it was. Then move it back and forth between two positions several times
   (and with `manual`, letting go of the stick each time), and check it still holds after each.
@@ -316,6 +319,7 @@ with what you saw.
 | How hard the wheels can push before slipping | step 8 | best `DRIVE_SLIP_LIMIT` far from 40 |
 | How late a distance sensor reads | step 10 | worse results right after moving |
 | A motor's hold mode after several stops in a row | step 11 | the arm sags after a few moves |
+| A motor's `spinToPosition` ends holding its target (the simulator's holds like hold mode) | step 11 | the arm ends past its position, or goes loose after a move |
 | How long an SD card write takes | step 12 | a movement after a pause starts late |
 | Which tasks a change of competition mode stops | step 13 | the robot drives on by itself in driver control, or the arm or intake doesn't answer |
 | A motor picks up its last command again after being disabled | step 13 | the intake autonomous left spinning stands still in driver control |

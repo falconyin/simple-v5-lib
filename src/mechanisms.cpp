@@ -205,9 +205,18 @@ void Arm::update() {
         }
         bool there = settle_start >= 0 && now - settle_start >= ARM_SETTLE_MS;
         bool gave_up = now - start_time >= ARM_TIMEOUT_MS;
-        if (there || gave_up) {
-            // The motor's own hold mode keeps it here from now on, even with something heavy on it
+        if (there) {
+            // The motor's own controller takes over: it drives the last bit to the target and holds
+            // it there from now on, even with something heavy on it. (stop(hold) would hold where
+            // the arm is: an arm that is still moving when it gets close, or a heavy one going down,
+            // would end up a few degrees further on.)
+            motors->setStopping(brakeType::hold);
+            motors->spinToPosition(target, rotationUnits::deg, max_speed, velocityUnits::pct, false);
+        } else if (gave_up) {
+            // Hold wherever it got to (stuck on something: driving on would only push against it)
             motors->stop(brakeType::hold);
+        }
+        if (there || gave_up) {
             state = ARM_HOLDING;
             arrived = there; // first, so it is ready once finished_request says this move is done
             finished_request = seen_request;

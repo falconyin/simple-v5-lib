@@ -130,7 +130,7 @@ if (Controller.ButtonR1.pressing()) {
 
 This is an arm with the config's gains, heavy enough that gravity pulls it down with 15% of the
 motor's power. Going up, it drives at nearly full power, slows down over the last 50 degrees or so
-and gets there in under 1.5 seconds. Then the motor's hold mode keeps it there.
+and gets there in under 1.5 seconds. Then the motor itself keeps it there ([section 5](#5-holding)).
 
 Going down, gravity helps, and that is the harder way: near the target, the PID's push gets small,
 and the arm's weight carries it about 8° past before the PID pushes it back up. For a heavy arm,
@@ -202,26 +202,27 @@ Each move started 10 times, 0 to 9 ms apart (ends: + = short of the target, - = 
 
 | Gains (kP, kI, kD) | Up 0 → 450, realistic | Down 450 → 100, realistic | Up, perfect | Down, perfect |
 | --- | --- | --- | --- | --- |
-| The config's (1.5, 0.05, 10) | 1.42 to 1.44 s, ends 0.5 to 0.8 | 1.33 to 1.34 s, 8.4 to 8.6° past, ends -2.6 to -2.4 | 1.32 s, ends 1.3 to 1.4 | 0.75 s, 2.2 to 2.9° past, ends -3.8 |
-| kP 15 | gave up (swings), 13.4 to 13.6° past | gave up (swings), 23.0 to 23.2° past | 1.12 s, 5.7 to 5.9° past, ends 0.6 | 0.71 s, 11.3 to 11.4° past, ends 1.0 |
-| kD 0 | 1.19 s, ends 1.9 to 2.0 | 1.00 s, 20.3° past, ends 1.3 | 1.12 s, ends 2.6 | 0.97 s, 14.5° past, ends -1.6 |
-| kD 20 | 1.61 to 1.62 s, ends 0.4 to 0.6 | 0.93 to 0.94 s, 2.4 to 2.9° past, ends -4.7 to -4.2 | 1.50 s, ends 1.2 | 0.90 s, 1.1 to 1.7° past, ends -2.5 |
-| kD 40 | 1.98 to 2.00 s, ends 0.2 to 0.7 | 1.25 s, 1.1 to 1.9° past, ends -3.2 to -2.8 | 1.87 s, ends 1.4 | 1.21 s, 0.1 to 0.6° past, ends -1.4 |
-| kI 0 | gave up, ends 11.6 to 11.8 | 0.78 s, 1.6 to 2.3° past, ends -3.9 to -3.7 | gave up, ends 10.8 | 0.76 s, 0.9 to 1.5° past, ends -2.3 |
-| kP 0.5 | gave up, ends 44.7 to 45.0 | 1.84 to 1.85 s, 12.5 to 12.9° past, ends -0.7 to -0.1 | gave up, ends 40.5 | 1.80 to 1.81 s, 11.1° past, ends -1.7 |
+| The config's (1.5, 0.05, 10) | 1.42 to 1.43 s, ends 0.7 to 0.8 | 1.33 to 1.35 s, 8.5 to 8.6° past, ends -0.8 | 1.32 s, ends 0.7 | 0.75 s, 2.1 to 2.9° past, ends -0.8 to -0.7 |
+| kP 15 | gave up (swings), 13.4 to 13.5° past | gave up (swings), 23.1 to 23.3° past | 1.12 s, 5.6 to 5.8° past, ends 0.8 | 0.71 s, 11.3 to 11.4° past, ends -0.9 |
+| kD 0 | 1.19 s, ends 0.8 | 1.00 s, 20.4° past, ends -0.7 | 1.12 s, ends 0.7 | 0.97 s, 14.5° past, ends -0.7 |
+| kD 20 | 1.60 to 1.61 s, ends 0.7 to 0.8 | 0.93 to 0.94 s, 2.1 to 3.2° past, ends -1.0 to -0.9 | 1.49 s, ends 0.7 | 0.90 s, 1.1 to 1.7° past, ends -0.8 |
+| kD 40 | 1.98 to 2.00 s, ends 0.7 to 0.8 | 1.24 to 1.25 s, 1.0 to 1.8° past, ends -0.9 | 1.87 s, ends 0.7 | 1.21 s, 0.1 to 0.6° past, ends -0.8 |
+| kI 0 | gave up, ends 11.5 to 11.8 | 0.78 s, 1.7 to 2.3° past, ends -1.0 to -0.9 | gave up, ends 10.8 | 0.76 s, 0.9 to 1.5° past, ends -0.8 |
+| kP 0.5 | gave up, ends 44.7 to 45.1 | 1.83 to 1.85 s, 12.4 to 12.9° past, ends -0.7 | gave up, ends 40.5 | 1.80 to 1.81 s, 11.1° past, ends -0.7 |
 
-(The moves up never went past the target, except kP 15's. "ends" is where the arm was 0.3 s after
-it finished, held by the motor.)
+(The moves up hardly went past the target, except kP 15's. "ends" is where the arm was 0.3 s after
+it finished, held by the motor: within 1° of the target whenever it got there, see
+[section 5](#5-holding).)
 
 For this simulated arm, kD 20 would be a better choice than the config's 10: much less past the
-target going down, for 0.2 s more going up (it still ends a degree or two further past once it
-holds, see [section 5](#5-holding)). Your arm is different, so try it.
+target going down, for 0.2 s more going up. Your arm is different, so try it.
 
 Things that don't help much:
 
 - **A lower `max_speed`** (`arm.moveTo(100, 50)`) only limits the fast part in the middle. Going
   down, the arm goes past the target at the end, where the power is small anyway: with max_speed 50
-  and 30 it still went 8.3 to 8.6° past on the realistic simulator, and only took longer.
+  it still went 8.3 to 8.6° past on the realistic simulator and took 0.35 s longer; with 30, the
+  push back up was too weak to get it back in time, and it gave up.
 - **A bigger `ARM_TOLERANCE`** makes it count as there sooner, but also further from the target.
 
 `ARM_TIMEOUT_MS` (2 seconds) only says when to give up. If your arm needs longer for a long move,
@@ -229,20 +230,24 @@ make it bigger; if it gives up on a short one, look for what blocks it first.
 
 ## 5. Holding
 
-When the arm gets there, the library stops the motor with `brakeType::hold`. In hold mode the motor
-keeps its position itself, inside the motor, and pushes back when something moves it away. That is
-what keeps a heavy arm up, and there is nothing to tune.
+When the arm gets there (inside `ARM_TOLERANCE` for `ARM_SETTLE_MS`), the library hands it to the
+motor: `spinToPosition(target)` with the stopping mode set to hold. The motor's own controller,
+inside the motor, takes it the last bit to the target, and then keeps it there: it pushes back when
+something moves it away. That is what keeps a heavy arm up, and there is nothing to tune.
 
-The simulator's hold mode is a guess: it pushes back with 20% power per degree, so the 15% arm sags
-about 0.75° in it. And the arm counts as there once it has been inside `ARM_TOLERANCE` for
-`ARM_SETTLE_MS`, even if it is still moving slowly: a heavy arm going down can then settle a
-little further, which is why some "ends" in the table are more than 3° (`ARM_TOLERANCE`) past. How
-stiff a real V5 motor's hold is, nobody has measured with this library yet: [First day on a real
-robot, step 11](first-robot-checklist.md#11-arm-and-intake) checks it (push the held arm by hand,
-and move it back and forth a few times).
+Why not simply stop it in hold mode where it is? The arm counts as there while it may still be
+moving: a heavy arm going down is still falling at 50 to 80°/s when it gets inside the tolerance.
+Held where it was at that moment, it ended up to 4.7° past the target on the simulator. Taken to
+the target by the motor, every move that got there ends within 1° of it (the table above).
 
-`manual(0)` after the stick holds too, and so does reaching a limit with the stick. `release()`
-lets go (coast): the arm falls if it is heavy.
+The simulator's motor controller is a guess: it pushes back with 20% power per degree, so the 15%
+arm sags about 0.75° below where it is held. How a real V5 motor does it, nobody has measured with
+this library yet: [First day on a real robot, step 11](first-robot-checklist.md#11-arm-and-intake)
+checks it (push the held arm by hand, and move it back and forth a few times).
+
+The other ways the arm holds are hold mode where it is: `manual(0)` after the stick, reaching a
+limit with the stick, and a `moveTo` that gave up (stuck on something: driving on to the target
+would only push against what blocks it). `release()` lets go (coast): the arm falls if it is heavy.
 
 ## 6. The intake: noticing a jam
 

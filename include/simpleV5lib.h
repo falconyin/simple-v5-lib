@@ -481,7 +481,8 @@ public:
     Arm(motor &one_motor, double kp = ARM_KP, double ki = ARM_KI, double kd = ARM_KD);
     Arm(motor_group &motors, double kp = ARM_KP, double ki = ARM_KI, double kd = ARM_KD);
 
-    // Move to this position and stay there: the motor's hold mode keeps it there once it arrives.
+    // Move to this position and stay there: once it is close, the motor's own controller takes it the
+    // last bit (spinToPosition) and holds it there.
     // Returns right away. Calling it again with the same position does nothing, so it is fine to
     // call it every time through the driver control loop while a button is pressed. Only after it
     // gave up (ARM_TIMEOUT_MS, see waitUntilDone) does the same position try again.

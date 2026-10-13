@@ -681,11 +681,15 @@ one is ignored (except a `moveTo` that gave up, below).
 `target - position()`, the D part brakes with the motor's speed. It counts as there when it
 stays within `ARM_TOLERANCE` for `ARM_SETTLE_MS`, like section 2.
 
-Then it stops the motor with `brakeType::hold`. In hold mode the motor runs its own position
-control, inside the motor, and pushes back whenever something moves it away. That is what
-keeps a heavy arm up, and it costs nothing to tune. If the arm doesn't get there within
-`ARM_TIMEOUT_MS` (stuck on something), it holds wherever it got to, and `waitUntilDone()`
-returns false. The same `moveTo` again is then not ignored like other repeats: it isn't there,
+Then it hands the arm to the motor: `spinToPosition(target)`, with the stopping mode set to
+`brakeType::hold`. The motor runs its own position control, inside the motor: it takes the arm
+the last bit to the target and keeps it there, pushing back whenever something moves it away.
+That is what keeps a heavy arm up, and it costs nothing to tune. (Why to the target, and not
+`stop(hold)` where the arm is: it counts as there while it may still be moving, and a heavy arm
+going down is still falling when it gets inside the tolerance. Held where it was then, it ended a
+few degrees further on.) If the arm doesn't get there within `ARM_TIMEOUT_MS` (stuck on
+something), it holds wherever it got to (`stop(hold)`: pushing on to the target would only push
+against what blocks it), and `waitUntilDone()` returns false. The same `moveTo` again is then not ignored like other repeats: it isn't there,
 so it tries again.
 
 Gravity is the hard part of moving an arm. While going down, gravity helps, and P alone stops

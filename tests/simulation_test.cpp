@@ -759,7 +759,10 @@ static void testSpeedProfile() {
         with_ki[i] = lastMovementResult();
     }
     forwardGains.ki = FORWARD_KI;
-    double ki_ms_off = sim::isRealistic() ? 120 : 20;
+    // On the realistic runs only the overshoot can tell: their time difference depends on where the
+    // noise is (-90 to 310 ms over 10 starts, with or without I), the overshoot's doesn't (0.03 to
+    // 0.04 more, with I 0.15 to 0.17)
+    double ki_ms_off = sim::isRealistic() ? 1e9 : 20;
     double ki_overshoot_off = sim::isRealistic() ? 0.08 : 0.02;
     check("  no I while following the ghost: a big kI changes little",
           fabs(with_ki[1].time_ms - with_ki[0].time_ms) < ki_ms_off
@@ -1233,6 +1236,12 @@ static void testArm() {
     while (!arm.isDone()) { lowest_seen = fmin(lowest_seen, arm.position()); vexDelay(5); }
     check("arm: moveTo 50, gravity helping", fabs(arm.position() - 50) < ARM_TOLERANCE, arm.position(), 50);
     check("  overshoot under 10 degrees", 50 - lowest_seen < 10, 50 - lowest_seen, 10);
+    // It counts as there while it still moves down: the motor's own controller (spinToPosition) takes
+    // it the rest of the way, and holds it at the target. Holding where it was (stop(hold)) ended
+    // about 4 degrees past. (The simulated hold sags 0.75 degrees under this load.)
+    vexDelay(500);
+    check("  then held at the target, not further down", fabs(sim::mech_pos[ARM] - 50) < 1.5
+          && sim::mech_holding_target[ARM], sim::mech_pos[ARM], 50);
 
     arm.moveTo(150, 30);
     double fastest = 0;
@@ -1292,7 +1301,9 @@ static void testArm() {
     arrived = arm.waitUntilDone();
     check("arm: stuck -> waitUntilDone false after ARM_TIMEOUT_MS", !arrived
           && fabs(sim::t_ms - t_start - ARM_TIMEOUT_MS) < 50, sim::t_ms - t_start, ARM_TIMEOUT_MS);
-    check("  then holds where it is", sim::cmd_in.mech_mode[ARM] == 3, sim::cmd_in.mech_mode[ARM], 3);
+    // (where it is: driving on to the target would only push against what blocks it)
+    check("  then holds where it is", sim::cmd_in.mech_mode[ARM] == 3 && !sim::cmd_in.mech_to[ARM],
+          sim::cmd_in.mech_mode[ARM], sim::cmd_in.mech_to[ARM]);
     sim::mech_jammed[ARM] = false;
     // The same moveTo again (a driver loop repeats it) is not ignored: it gave up, so it tries again
     arm.moveTo(300);

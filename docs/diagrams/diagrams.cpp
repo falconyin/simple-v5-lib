@@ -880,12 +880,12 @@ static ArmTrace moveArm(int c, double from, double to, int start_ms, double max_
     Arm &arm = case_arms[c];
     int port = arm_cases[c].port;
     sim::mech_load[port] = ARM_LOAD;
+    // Put it exactly at from, held, so every run starts from where the table says (driving there
+    // with the case's gains could give up on the way). The simulated arm is where its motor says it
+    // is, so a new zero moves it there; the moveTo to where it now is only makes the Arm hold it.
+    arm.resetPosition(from);
     arm.moveTo(from);
     arm.waitUntilDone();
-    // Some gains give up short of it, or swinging: put it exactly at from, so every run starts from
-    // where the table says. (The simulated arm is where its motor says it is, so a new zero moves it
-    // there; the Arm then holds it.)
-    arm.resetPosition(from);
     vexDelay(300 + start_ms);
     ArmTrace t;
     double start = sim::t_ms, direction = to > from ? 1 : -1;
@@ -989,41 +989,34 @@ static void armGoodPicture(const std::string &folder) {
     p.save(folder, "arm-good.svg", "A heavy arm with the config's gains: moveTo(450), then moveTo(100)");
 }
 
-// The table: each case's moves up and down, over STARTS runs
+// One line of the table: case c's move from -> to, over STARTS runs
+static void armRow(const std::string &label, int c, double from, double to, double max_speed = 100) {
+    Range time, overshoot, error;
+    int gave_up = 0;
+    for (int start = 0; start < STARTS; start++) {
+        ArmTrace t = moveArm(c, from, to, start, max_speed);
+        time.add(t.time_ms / 1000);
+        overshoot.add(t.overshoot);
+        error.add(t.error);
+        if (!t.arrived) gave_up++;
+    }
+    printf("  %-20s %-4s %s s, %s° past, ends %s°%s\n", label.c_str(), to > from ? "up" : "down",
+           time.show("%.2f").c_str(), overshoot.show().c_str(), error.show().c_str(),
+           gave_up ? Picture::fmt(", gave up %d of %d", gave_up, STARTS).c_str() : "");
+}
+
+// The table: each case's moves up and down
 static void armNumbers(const char *robot) {
     printf("\ndocs/mechanisms.md, the %s simulator: an arm with %.0f%% gravity, moveTo from 0 to 450 (up) and 450 to 100 (down)\n",
            robot, ARM_LOAD);
     printf("(ends: + = short of the target, - = past it; gave up = after ARM_TIMEOUT_MS)\n");
     for (int c = 0; c < ARM_CASES; c++) {
-        for (int up = 1; up >= 0; up--) {
-            Range time, overshoot, error;
-            int gave_up = 0;
-            for (int start = 0; start < STARTS; start++) {
-                ArmTrace t = up ? moveArm(c, 0, 450, start) : moveArm(c, 450, 100, start);
-                time.add(t.time_ms / 1000);
-                overshoot.add(t.overshoot);
-                error.add(t.error);
-                if (!t.arrived) gave_up++;
-            }
-            printf("  %-20s %-4s %s s, %s° past, ends %s°%s\n", arm_cases[c].label, up ? "up" : "down",
-                   time.show("%.2f").c_str(), overshoot.show().c_str(), error.show().c_str(),
-                   gave_up ? Picture::fmt(", gave up %d of %d", gave_up, STARTS).c_str() : "");
-        }
+        armRow(arm_cases[c].label, c, 0, 450);
+        armRow(arm_cases[c].label, c, 450, 100);
     }
     // Going down slower: gravity carries it past less
     for (double speed : {50.0, 30.0}) {
-        Range time, overshoot, error;
-        int gave_up = 0;
-        for (int start = 0; start < STARTS; start++) {
-            ArmTrace t = moveArm(0, 450, 100, start, speed);
-            time.add(t.time_ms / 1000);
-            overshoot.add(t.overshoot);
-            error.add(t.error);
-            if (!t.arrived) gave_up++;
-        }
-        printf("  %-20s %-4s %s s, %s° past, ends %s°%s\n", Picture::fmt("config, max_speed %g", speed).c_str(), "down",
-               time.show("%.2f").c_str(), overshoot.show().c_str(), error.show().c_str(),
-               gave_up ? Picture::fmt(", gave up %d of %d", gave_up, STARTS).c_str() : "");
+        armRow(Picture::fmt("config, max_speed %g", speed), 0, 450, 100, speed);
     }
 }
 

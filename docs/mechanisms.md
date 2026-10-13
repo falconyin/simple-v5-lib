@@ -202,13 +202,13 @@ Each move started 10 times, 0 to 9 ms apart (ends: + = short of the target, - = 
 
 | Gains (kP, kI, kD) | Up 0 → 450, realistic | Down 450 → 100, realistic | Up, perfect | Down, perfect |
 | --- | --- | --- | --- | --- |
-| The config's (1.5, 0.05, 10) | 1.42 to 1.43 s, ends 1.6 | 1.33 to 1.35 s, 8.4 to 8.6° past, ends -1.6 | 1.32 s, ends 1.5 | 0.75 s, 2.1 to 2.9° past, ends -1.5 |
-| kP 15 | gave up (swings), 13.4 to 13.7° past | gave up (swings), 23.1 to 23.2° past | 1.12 s, 5.7 to 5.8° past, ends 1.5 | 0.71 s, 11.3 to 11.5° past, ends -1.5 |
-| kD 0 | 1.19 s, ends 1.6 | 1.00 to 1.01 s, 20.3 to 20.6° past, ends -1.6 | 1.12 s, ends 1.5 | 0.97 s, 14.5° past, ends -1.5 |
-| kD 20 | 1.60 to 1.61 s, ends 1.6 | 0.93 to 0.94 s, 2.4 to 2.9° past, ends -1.6 | 1.50 s, ends 1.5 | 0.90 s, 1.1 to 1.7° past, ends -1.5 |
-| kD 40 | 1.98 to 1.99 s, ends 1.6 | 1.24 to 1.25 s, 1.0 to 1.8° past, ends -1.6 | 1.87 s, ends 1.5 | 1.21 to 1.22 s, 0.1 to 0.8° past, ends -1.5 |
-| kI 0 | gave up, ends 11.6 to 11.9 | 0.80 s, 1.8 to 2.5° past, ends -1.6 | gave up, ends 10.8 | 0.77 s, 0.6 to 1.2° past, ends -1.5 |
-| kP 0.5 | gave up, ends 44.8 to 45.0 | 1.90 to 1.92 s, 12.4 to 13.0° past, ends -1.6 | gave up, ends 40.5 | 1.86 s, 11.1° past, ends -1.5 |
+| The config's (1.5, 0.05, 10) | 1.42 to 1.43 s, ends 1.6 | 1.33 to 1.34 s, 8.4 to 8.6° past, ends -1.6 | 1.32 s, ends 1.5 | 0.75 s, 2.1 to 2.9° past, ends -1.5 |
+| kP 15 | gave up (swings), 13.4 to 13.6° past | gave up (swings), 23.1 to 23.3° past | 1.12 s, 5.7 to 5.8° past, ends 1.5 | 0.71 s, 11.3 to 11.4° past, ends -1.5 |
+| kD 0 | 1.19 s, ends 1.6 | 1.00 s, 20.4° past, ends -1.6 | 1.12 s, ends 1.5 | 0.97 s, 14.5° past, ends -1.5 |
+| kD 20 | 1.60 to 1.61 s, ends 1.6 | 0.93 to 0.94 s, 2.3 to 3.0° past, ends -1.6 | 1.49 s, ends 1.5 | 0.90 s, 1.1 to 1.7° past, ends -1.5 |
+| kD 40 | 1.99 s, ends 1.6 | 1.25 s, 0.9 to 1.7° past, ends -1.6 | 1.87 s, ends 1.5 | 1.22 s, 0.3 to 0.8° past, ends -1.5 |
+| kI 0 | gave up, ends 11.6 to 11.9 | 0.80 s, 1.7 to 2.5° past, ends -1.6 | gave up, ends 10.8 | 0.77 s, 0.6 to 1.2° past, ends -1.5 |
+| kP 0.5 | gave up, ends 44.8 to 45.1 | 1.90 to 1.92 s, 12.5 to 12.8° past, ends -1.6 | gave up, ends 40.5 | 1.86 s, 11.1° past, ends -1.5 |
 
 (Every move starts held at its start position, also after gains that gave up on the way there.
 The moves up hardly went past the target, except kP 15's. "ends" is where the arm was 0.8 s after
@@ -222,7 +222,7 @@ Things that don't help much:
 
 - **A lower `max_speed`** (`arm.moveTo(100, 50)`) only limits the fast part in the middle. Going
   down, the arm goes past the target at the end, where the power is small anyway: with max_speed 50
-  it still went 8.4 to 8.6° past on the realistic simulator and took 0.35 s longer; with 30, the
+  it still went 8.4 to 8.5° past on the realistic simulator and took 0.35 s longer; with 30, the
   push back up was too weak to get it back in time, and it gave up.
 - **A bigger `ARM_TOLERANCE`** makes it count as there sooner, but also further from the target.
 
